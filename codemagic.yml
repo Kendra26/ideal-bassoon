@@ -1,0 +1,22 @@
+workflows:
+  default:
+    name: Build and Upload
+    max_build_duration: 60
+    scripts:
+      - name: Install dependencies
+        script: |
+          sudo apt-get update
+          sudo apt-get install -y nodejs npm curl
+          npm install -g webtorrent-cli
+          mkdir -p downloads
+
+      - name: Download torrents
+        script: |
+          echo "Starting torrent download..."
+          npx webtorrent download "magnet:?xt=urn:btih:5634C3633F1AECC88442A9FB0C4B8AA202FE01CA&dn=Pohl%20M.%20Particles%2C%20Fields%2C%20Space-Time%202ed%202025&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce" "magnet:?xt=urn:btih:33B12C6DFDD8E3E269C6A1FD6BC6CB70D2672E6D&dn=Saleh%20B.%20Quantum%20Photonics.%20Bimodes%2C%20Qubits%2C%20and%20Biphotons%202025&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce" --out downloads
+          echo "Uploading files to Pixeldrain..."
+
+          find downloads -type f | while read file; do
+            echo "Uploading $file..."
+            curl -T "$file" -u :8ec6f000- https://pixeldrain.com/api/file/
+          done
