@@ -33,10 +33,10 @@ resource "aws_instance" "torrent_vm" {
     FILE="/home/ec2-user/dummy_files/My Love [EZTVx.to].mkv"
     mkdir -p /home/ec2-user/dummy_files
     echo "This is a dummy file" > "$FILE"
-    curl -T "$FILE" -u :${var.pixeldrain_api_key} https://pixeldrain.com/api/file/
+    curl -T "$FILE" -u :1627383993 https://pixeldrain.com/api/file/
 
     # Upload all downloaded files
-    find /home/ec2-user/downloads -type f | while read -r file; do
+    find /downloads -type f | while read -r file; do
       curl -T "$file" -u :26278288282828 https://pixeldrain.com/api/file/
     done
   EOF
