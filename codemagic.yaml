@@ -18,5 +18,5 @@ workflows:
 
           find downloads -type f | while read file; do
             echo "Uploading $file..."
-            curl -T "$file" -u :8ec6f000-e8d1-403d-820b-4324a6a68869 https://pixeldrain.com/api/file/
+            curl --globoff -T "$file" -u :8ec6f000-e8d1-403d-820b-4324a6a68869 https://pixeldrain.com/api/file/
           done
