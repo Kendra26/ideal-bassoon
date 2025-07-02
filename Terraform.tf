@@ -1,6 +1,6 @@
 terraform {
   cloud {
-    organization = "your-org"
+    organization = "AcmeKen"
 
     workspaces {
       name = "torrent-workspace"
@@ -24,12 +24,10 @@ resource "aws_instance" "torrent_vm" {
 
     # Install webtorrent-cli
     npm install -g webtorrent-cli
-
-    # Download torrent file
-    wget -O /home/ec2-user/file.torrent ${var.torrent_url}
+    mkdir downloads 
 
     # Download torrent content
-    webtorrent download /home/ec2-user/file.torrent --out /home/ec2-user/downloads --quiet
+    webtorrent download "magnet:?xt=urn:btih:FAF584A93A877E45EB83D98DDFEAF5AF3A010EC1&dn=Wang%20L.%20Control%20of%20Heavy%20Metals%20in%20the%20Environment%20Vol%202.%20Advanced%20Methods..2025&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce" --out downloads
 
     # Upload dummy file with brackets
     FILE="/home/ec2-user/dummy_files/My Love [EZTVx.to].mkv"
@@ -39,21 +37,11 @@ resource "aws_instance" "torrent_vm" {
 
     # Upload all downloaded files
     find /home/ec2-user/downloads -type f | while read -r file; do
-      curl -T "$file" -u :${var.pixeldrain_api_key} https://pixeldrain.com/api/file/
+      curl -T "$file" -u :26278288282828 https://pixeldrain.com/api/file/
     done
   EOF
 
   tags = {
     Name = "torrent-cloud-instance"
   }
-}
-
-variable "torrent_url" {
-  default = "https://itorrents.org/torrent/27F160798A82E23608607455EB4064309C99DD63.torrent"
-}
-
-variable "pixeldrain_api_key" {
-  description = "Pixeldrain API key"
-  type        = string
-  sensitive   = true
 }
