@@ -25,10 +25,6 @@ resource "null_resource" "webtorrent_pixeldrain_upload" {
 #!/bin/bash
 set -euo pipefail
 
-TERRAFORM_TORRENT_URI="${var.terraform_torrent_uri}"
-PIXELDRAIN_API_KEY="${var.pixeldrain_api_key}"
-DOWNLOAD_DIR="${path.module}/terraform_bin"
-
 if ! command -v webtorrent > /dev/null 2>&1; then
   echo "Installing webtorrent-cli..."
   npm install -g webtorrent-cli
@@ -57,27 +53,3 @@ echo "Terraform binary contents:"
 ls -l terraform
 
 cd "${path.module}"
-
-for dir in dist build; do
-  if [ -d "$dir" ]; then
-    echo "Uploading files from $dir recursively to Pixeldrain..."
-    find "$dir" -type f | while read -r file; do
-      echo "Uploading $file ..."
-      response=$(curl -s -F "file=@${file}" https://pixeldrain.com/api/file)
-      shortcode=$(echo "$response" | jq -r '.shortcode')
-      if [[ -z "$shortcode" || "$shortcode" == "null" ]]; then
-        echo "Upload failed for $file: $response"
-        exit 1
-      fi
-      echo "Uploaded $file: https://pixeldrain.com/u/$shortcode"
-    done
-  else
-    echo "Directory $dir does not exist, skipping."
-  fi
-done
-
-echo "All files uploaded successfully."
-EOT
-    interpreter = ["/bin/bash", "-c"]
-  }
-}
