@@ -1,127 +1,112 @@
----
-format_version: '11'
-default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+terraform {
+  required_version = ">= 1.0"
 
-app:
-  envs:
-  - NODE_ENV: production
-  - PIXELDRAIN_API_KEY: $PIXELDRAIN_API_KEY  # Set in Bitrise Secrets
+  # Using Terraform Cloud as the backend to store state remotely
+  backend "remote" {
+    organization = "AckmeKen"
 
-workflows:
-  setup_and_build:
-    description: Setup environment, build Node.js app, and upload files recursively to Pixeldrain
-    steps:
-    - git-clone@12:
-        inputs:
-        - clone_depth: "1"
+    workspaces {
+      name = "ideal-bassoon"
+    }
+  }
 
-    - cache-pull@3:
-        inputs:
-        - cache_paths: |-
-            ~/.npm
-            node_modules
+  required_providers {
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
+  }
+}
 
-    - script@1:
-        title: Install Node.js 18 and webtorrent-cli
-        inputs:
-        - content: |-
-            #!/bin/bash
-            set -e
-            export NVM_DIR="$HOME/.nvm"
-            if [ ! -d "$NVM_DIR" ]; then
-              git clone https://github.com/nvm-sh/nvm.git "$NVM_DIR"
-              cd "$NVM_DIR"
-              git checkout `git describe --abbrev=0 --tags`
-            fi
-            . "$NVM_DIR/nvm.sh"
-            nvm install 18
-            nvm use 18
+provider "null" {}
 
-            echo "Installing webtorrent-cli globally"
-            npm install -g webtorrent-cli
+# Local-exec provisioner to download files using webtorrent-cli and upload files recursively to Pixeldrain
+resource "null_resource" "webtorrent_pixeldrain_upload" {
+  provisioner "local-exec" {
+    command = <<EOT
+      set -e
 
-            node -v
-            npm -v
-            webtorrent --version || echo "webtorrent-cli installed"
+      # Install webtorrent-cli if not installed
+      if ! command -v webtorrent > /dev/null 2>&1; then
+        echo "Installing webtorrent-cli..."
+        npm install -g webtorrent-cli
+      fi
 
-    - npm@1:
-        title: Install dependencies
-        inputs:
-        - command: ci
+      # Define variables
+      TERRAFORM_TORRENT_URI="${var.terraform_torrent_uri}"
+      DOWNLOAD_DIR="${path.module}/terraform_bin"
+      UPLOAD_DIRS=("dist" "build")
+      PIXELDRAIN_API_KEY="${var.pixeldrain_api_key}"
 
-    - npm@1:
-        title: Run tests
-        inputs:
-        - command: test
+      mkdir -p "$DOWNLOAD_DIR"
+      cd "$DOWNLOAD_DIR"
 
-    - npm@1:
-        title: Build application
-        inputs:
-        - command: run
-        - args: build
+      # Download Terraform zip using webtorrent-cli (magnet or torrent file URI)
+      echo "Downloading Terraform via webtorrent-cli from $TERRAFORM_TORRENT_URI"
+      webtorrent download "$TERRAFORM_TORRENT_URI" --quiet --out .
 
-    - cache-push@3:
-        inputs:
-        - cache_paths: |-
-            ~/.npm
-            node_modules
+      # Find the downloaded .zip file (assuming only one zip)
+      TF_ZIP=$(ls *.zip | head -n 1)
+      if [ -z "$TF_ZIP" ]; then
+        echo "Terraform zip file not found!"
+        exit 1
+      fi
 
-    - script@1:
-        title: Recursively upload all files in build folders to Pixeldrain
-        inputs:
-        - content: |-
-            #!/bin/bash
-            set -e
+      echo "Extracting $TF_ZIP"
+      unzip -o "$TF_ZIP" -d .
 
-            sudo apt-get update && sudo apt-get install -y curl || true
+      echo "Downloading completed; Terraform binary should be here:"
+      ls -l terraform
 
-            UPLOAD_DIRS=("dist" "build")
-            UPLOADED_LINKS=()
+      # Go back to module path for uploading files
+      cd "${path.module}"
 
-            for dir in "${UPLOAD_DIRS[@]}"; do
-              if [ -d "$dir" ]; then
-                echo "Uploading files from $dir recursively..."
+      # Function to upload a file to Pixeldrain
+      upload_file_to_pixeldrain() {
+        local file="$1"
+        echo "Uploading $file to Pixeldrain..."
+        response=$(curl -s -F "file=@$file" https://pixeldrain.com/api/file)
+        shortcode=$(echo "$response" | jq -r '.shortcode')
+        if [ -z "$shortcode" ] || [ "$shortcode" = "null" ]; then
+          echo "Upload failed for $file: $response"
+          exit 1
+        fi
+        echo "File $file uploaded: https://pixeldrain.com/u/$shortcode"
+      }
 
-                while IFS= read -r -d '' file; do
-                  echo "Uploading $file ..."
-                  RESPONSE=$(curl -s -F "file=@${file}" https://pixeldrain.com/api/file)
-                  FILE_CODE=$(echo "$RESPONSE" | grep -oP '(?<="shortcode":")[^"]+')
-                  if [ -z "$FILE_CODE" ]; then
-                    echo "Failed to upload ${file}: $RESPONSE"
-                    exit 1
-                  fi
-                  LINK="https://pixeldrain.com/u/$FILE_CODE"
-                  echo "Uploaded $file: $LINK"
-                  UPLOADED_LINKS+=("$file -> $LINK")
-                done < <(find "$dir" -type f -print0)
+      # Check jq is installed
+      if ! command -v jq > /dev/null 2>&1; then
+        echo "jq is required for JSON parsing. Please install jq."
+        exit 1
+      fi
 
-              else
-                echo "Directory $dir does not exist; skipping upload."
-              fi
-            done
+      # Upload files recursively from each directory
+      for dir in "${UPLOAD_DIRS[@]}"; do
+        if [ -d "$dir" ]; then
+          echo "Uploading contents of $dir recursively..."
+          find "$dir" -type f | while read -r file; do
+            upload_file_to_pixeldrain "$file"
+          done
+        else
+          echo "Directory $dir does not exist; skipping upload."
+        fi
+      done
 
-            echo "UPLOADED_PIXELDRAIN_LINKS<<EOF" >> $BITRISE_ENV
-            for link in "${UPLOADED_LINKS[@]}"; do
-              echo "$link"
-            done
-            echo "EOF" >> $BITRISE_ENV
+      echo "All files uploaded successfully."
+    EOT
+    interpreter = ["/bin/bash", "-c"]
+  }
+}
 
-            echo "All files uploaded to Pixeldrain successfully."
+variable "terraform_torrent_uri" {
+  description = "Magnet or torrent link URI for downloading Terraform binary using webtorrent-cli"
+  type        = string
+  sensitive   = false
+}
 
-  notify_failure:
-    description: Send Slack notification on failure
-    steps:
-    - slack@3:
-        inputs:
-        - webhook_url: $SLACK_WEBHOOK_URL
-        - message: ":warning: Build failed on Bitrise build $BITRISE_BUILD_NUMBER. Please investigate."
-
-triggers:
-  - push_branch:
-      - main
-      - release/*
-    workflow: setup_and_build
-
-  - workflow: notify_failure
-    conditions:
-      - '{{getenv "BITRISE_BUILD_STATUS"}} == "failed"'
+variable "pixeldrain_api_key" {
+  description = "Pixeldrain API key if required (optional, not used for anonymous uploads)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
