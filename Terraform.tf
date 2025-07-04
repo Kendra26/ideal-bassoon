@@ -1,47 +1,127 @@
-terraform {
-  cloud {
-    organization = "AcmeKen"
+---
+format_version: '11'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 
-    workspaces {
-      name = "torrent-workspace"
-    }
-  }
-}
+app:
+  envs:
+  - NODE_ENV: production
+  - PIXELDRAIN_API_KEY: $PIXELDRAIN_API_KEY  # Set in Bitrise Secrets
 
-provider "aws" {
-  region = "us-east-1"
-}
+workflows:
+  setup_and_build:
+    description: Setup environment, build Node.js app, and upload files recursively to Pixeldrain
+    steps:
+    - git-clone@12:
+        inputs:
+        - clone_depth: "1"
 
-resource "aws_instance" "torrent_vm" {
-  ami           = "ami-0c94855ba95c71c99"
-  instance_type = "t3.micro"
+    - cache-pull@3:
+        inputs:
+        - cache_paths: |-
+            ~/.npm
+            node_modules
 
-  user_data = <<-EOF
-    #!/bin/bash
-    # Install dependencies
-    sudo yum update -y
-    sudo yum install -y wget curl nodejs npm
+    - script@1:
+        title: Install Node.js 18 and webtorrent-cli
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -e
+            export NVM_DIR="$HOME/.nvm"
+            if [ ! -d "$NVM_DIR" ]; then
+              git clone https://github.com/nvm-sh/nvm.git "$NVM_DIR"
+              cd "$NVM_DIR"
+              git checkout `git describe --abbrev=0 --tags`
+            fi
+            . "$NVM_DIR/nvm.sh"
+            nvm install 18
+            nvm use 18
 
-    # Install webtorrent-cli
-    npm install -g webtorrent-cli
-    mkdir downloads 
+            echo "Installing webtorrent-cli globally"
+            npm install -g webtorrent-cli
 
-    # Download torrent content
-    webtorrent download "magnet:?xt=urn:btih:FAF584A93A877E45EB83D98DDFEAF5AF3A010EC1&dn=Wang%20L.%20Control%20of%20Heavy%20Metals%20in%20the%20Environment%20Vol%202.%20Advanced%20Methods..2025&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce" --out downloads
+            node -v
+            npm -v
+            webtorrent --version || echo "webtorrent-cli installed"
 
-    # Upload dummy file with brackets
-    FILE="/home/ec2-user/dummy_files/My Love [EZTVx.to].mkv"
-    mkdir -p /home/ec2-user/dummy_files
-    echo "This is a dummy file" > "$FILE"
-    curl -T "$FILE" -u :1627383993 https://pixeldrain.com/api/file/
+    - npm@1:
+        title: Install dependencies
+        inputs:
+        - command: ci
 
-    # Upload all downloaded files
-    find /downloads -type f | while read -r file; do
-      curl -T "$file" -u :26278288282828 https://pixeldrain.com/api/file/
-    done
-  EOF
+    - npm@1:
+        title: Run tests
+        inputs:
+        - command: test
 
-  tags = {
-    Name = "torrent-cloud-instance"
-  }
-}
+    - npm@1:
+        title: Build application
+        inputs:
+        - command: run
+        - args: build
+
+    - cache-push@3:
+        inputs:
+        - cache_paths: |-
+            ~/.npm
+            node_modules
+
+    - script@1:
+        title: Recursively upload all files in build folders to Pixeldrain
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -e
+
+            sudo apt-get update && sudo apt-get install -y curl || true
+
+            UPLOAD_DIRS=("dist" "build")
+            UPLOADED_LINKS=()
+
+            for dir in "${UPLOAD_DIRS[@]}"; do
+              if [ -d "$dir" ]; then
+                echo "Uploading files from $dir recursively..."
+
+                while IFS= read -r -d '' file; do
+                  echo "Uploading $file ..."
+                  RESPONSE=$(curl -s -F "file=@${file}" https://pixeldrain.com/api/file)
+                  FILE_CODE=$(echo "$RESPONSE" | grep -oP '(?<="shortcode":")[^"]+')
+                  if [ -z "$FILE_CODE" ]; then
+                    echo "Failed to upload ${file}: $RESPONSE"
+                    exit 1
+                  fi
+                  LINK="https://pixeldrain.com/u/$FILE_CODE"
+                  echo "Uploaded $file: $LINK"
+                  UPLOADED_LINKS+=("$file -> $LINK")
+                done < <(find "$dir" -type f -print0)
+
+              else
+                echo "Directory $dir does not exist; skipping upload."
+              fi
+            done
+
+            echo "UPLOADED_PIXELDRAIN_LINKS<<EOF" >> $BITRISE_ENV
+            for link in "${UPLOADED_LINKS[@]}"; do
+              echo "$link"
+            done
+            echo "EOF" >> $BITRISE_ENV
+
+            echo "All files uploaded to Pixeldrain successfully."
+
+  notify_failure:
+    description: Send Slack notification on failure
+    steps:
+    - slack@3:
+        inputs:
+        - webhook_url: $SLACK_WEBHOOK_URL
+        - message: ":warning: Build failed on Bitrise build $BITRISE_BUILD_NUMBER. Please investigate."
+
+triggers:
+  - push_branch:
+      - main
+      - release/*
+    workflow: setup_and_build
+
+  - workflow: notify_failure
+    conditions:
+      - '{{getenv "BITRISE_BUILD_STATUS"}} == "failed"'
