@@ -53,3 +53,4 @@ echo "Terraform binary contents:"
 ls -l terraform
 
 cd "${path.module}"
+}
