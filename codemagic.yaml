@@ -12,12 +12,12 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          aria2c --seed-time=0 --dir=downloads --select-file=17-33 "magnet:?xt=urn:btih:4BB0CE70EF23EB6D9F126D493DBBF01EA98A7B6F&dn=Tiny+Toon+Adventures+1990+S01+1080p+DVD+UPSCALED+DD+5.1+x265-edge...%20%20%20%20%20%20%20%20&tr=udp://tracker.bittor.pw:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.opentrackr.org:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.dler.org:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.stealth.si:80/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.torrent.eu.org:451/announce%20%20%20%20%20%20%20%20&tr=udp://exodus.desync.com:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.demonii.com:1337/announce"
+          aria2c --seed-time=0 --dir=downloads --select-file=34-50 --file-allocation=none "magnet:?xt=urn:btih:4BB0CE70EF23EB6D9F126D493DBBF01EA98A7B6F&dn=Tiny+Toon+Adventures+1990+S01+1080p+DVD+UPSCALED+DD+5.1+x265-edge...%20%20%20%20%20%20%20%20&tr=udp://tracker.bittor.pw:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.opentrackr.org:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.dler.org:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.stealth.si:80/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.torrent.eu.org:451/announce%20%20%20%20%20%20%20%20&tr=udp://exodus.desync.com:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.demonii.com:1337/announce"
           echo "Uploading files to Pixeldrain..."
 
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -X POST "https://upload.gofile.io/uploadfile" \
                      -H "Authorization: Bearer D6TLIacgqNHu93hAjSOBgyZxOWEUOmzO" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=6d81e60d-53b3-4deb-a04d-05707e454a82"
+                     -F "folderId=51c80ccf-c987-4de1-b582-d208dc80bde1"
               done
