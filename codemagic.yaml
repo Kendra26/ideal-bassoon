@@ -1,19 +1,18 @@
 workflows:
   default:
     name: Build and Upload
-    max_build_duration: 60
+    max_build_duration: 90
     scripts:
       - name: Install dependencies
         script: |
-          sudo apt-get update
-          sudo apt-get install -y nodejs npm curl
-          npm install -g webtorrent-cli
+          sudo apt update
+          sudo apt install -y aria2
           mkdir -p downloads
 
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          npx webtorrent download "magnet:?xt=urn:btih:ba9050209c66e25b2d8dc7c8fdba221f749a7108&dn=Murder%20By%20Medic%20S04E05%20Richard%20Sharpe%201080p%20AMZN%20WEB-DL%20DDP2%200%20H%20264-RAWR%5BEZTVx.to%5D.mkv%5Beztv%5D&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fp4p.arenabg.com%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce" --out downloads
+          aria2c --seed-time=0 --dir=downloads --select-file=1-16 "magnet:?xt=urn:btih:4BB0CE70EF23EB6D9F126D493DBBF01EA98A7B6F&dn=Tiny+Toon+Adventures+1990+S01+1080p+DVD+UPSCALED+DD+5.1+x265-edge...%20%20%20%20%20%20%20%20&tr=udp://tracker.bittor.pw:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.opentrackr.org:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.dler.org:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.stealth.si:80/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.torrent.eu.org:451/announce%20%20%20%20%20%20%20%20&tr=udp://exodus.desync.com:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.demonii.com:1337/announce"
           echo "Uploading files to Pixeldrain..."
 
           find downloads -type f | while read file; do
