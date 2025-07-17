@@ -12,12 +12,12 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          aria2c --seed-time=0 --dir=downloads --select-file=51-65 --file-allocation=none "magnet:?xt=urn:btih:4BB0CE70EF23EB6D9F126D493DBBF01EA98A7B6F&dn=Tiny+Toon+Adventures+1990+S01+1080p+DVD+UPSCALED+DD+5.1+x265-edge...%20%20%20%20%20%20%20%20&tr=udp://tracker.bittor.pw:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.opentrackr.org:1337/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.dler.org:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.stealth.si:80/announce%20%20%20%20%20%20%20%20&tr=udp://tracker.torrent.eu.org:451/announce%20%20%20%20%20%20%20%20&tr=udp://exodus.desync.com:6969/announce%20%20%20%20%20%20%20%20&tr=udp://open.demonii.com:1337/announce"
+          aria2c --seed-time=0 --dir=downloads --select-file=25-48 --file-allocation=none "magnet:?xt=urn:btih:12096ff6a2c0caeceda1fdecc1b9435827519a77&dn=The.Penguins.Of.Madagascar.S01.Repack.1080p.WEB-DL.AAC2.0.H.264-CtrlHD&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Fwepzone.net%3A6969%2Fannounce&tr=udp%3A%2F%2Fttk2.nbaonlineservice.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.srv00.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ololosh.space%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.fnix.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.filemail.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.dump.cl%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ft.overflow.biz%3A6969%2Fannounce&tr=https%3A%2F%2Ftracker.bt4g.com%3A443%2Fannounce"
           echo "Uploading files to Pixeldrain..."
 
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -X POST "https://upload.gofile.io/uploadfile" \
                      -H "Authorization: Bearer D6TLIacgqNHu93hAjSOBgyZxOWEUOmzO" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=79615fb5-046e-438e-87bc-a9ac25fb6a6a"
+                     -F "folderId=589da20c-1abf-498b-905a-b6419ad627f6"
               done
