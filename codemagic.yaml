@@ -1,7 +1,7 @@
 workflows:
   default:
     name: Build and Upload
-    max_build_duration: 90
+    max_build_duration: 180
     scripts:
       - name: Install dependencies
         script: |
@@ -12,12 +12,13 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          aria2c --seed-time=0 --dir=downloads --select-file=25-48 --file-allocation=none "magnet:?xt=urn:btih:12096ff6a2c0caeceda1fdecc1b9435827519a77&dn=The.Penguins.Of.Madagascar.S01.Repack.1080p.WEB-DL.AAC2.0.H.264-CtrlHD&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce&tr=udp%3A%2F%2Fwepzone.net%3A6969%2Fannounce&tr=udp%3A%2F%2Fttk2.nbaonlineservice.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker2.dler.org%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.tryhackx.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.srv00.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.qu.ax%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.ololosh.space%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.fnix.net%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.filemail.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.dump.cl%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker-udp.gbitt.info%3A80%2Fannounce&tr=udp%3A%2F%2Ft.overflow.biz%3A6969%2Fannounce&tr=https%3A%2F%2Ftracker.bt4g.com%3A443%2Fannounce"
+          curl -s https://textdoc.co/5xvG5PnuTb838mhsX | grep -oP 'magnet:\S+' > links.txt
+          aria2c --seed-time=0 --dir=downloads --select-file=66-99 --file-allocation=none -i links.txt
           echo "Uploading files to Pixeldrain..."
-
+          
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -X POST "https://upload.gofile.io/uploadfile" \
-                     -H "Authorization: Bearer D6TLIacgqNHu93hAjSOBgyZxOWEUOmzO" \
+                     -H "Authorization: Bearer p2986wPNaFeImJzfgw9UmwTFaKdDihpO" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=589da20c-1abf-498b-905a-b6419ad627f6"
+                     -F "folderId=48ad7d1d-4280-4e83-bc05-627b9c091399"
               done
