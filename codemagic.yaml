@@ -13,12 +13,12 @@ workflows:
         script: |
           echo "Starting torrent download..."
           curl -s https://textdoc.co/5xvG5PnuTb838mhsX | grep -oP 'magnet:\S+' > links.txt
-          aria2c --seed-time=0 --dir=downloads --select-file=66-99 --file-allocation=none -i links.txt
+          aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
           echo "Uploading files to Pixeldrain..."
           
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -X POST "https://upload.gofile.io/uploadfile" \
-                     -H "Authorization: Bearer p2986wPNaFeImJzfgw9UmwTFaKdDihpO" \
+                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=48ad7d1d-4280-4e83-bc05-627b9c091399"
+                     -F "folderId=569169f0-479c-4720-857a-2aa341d5eca9"
               done
