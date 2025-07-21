@@ -12,7 +12,7 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          curl -s https://textdoc.co/5xvG5PnuTb838mhsX | grep -oP 'magnet:\S+' > links.txt
+          curl -s https://textdoc.co/5xvG5PnuTb838mhsX | grep -oE 'magnet:\S+' > links.txt
           aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
           echo "Uploading files to Pixeldrain..."
           
