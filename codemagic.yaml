@@ -1,7 +1,7 @@
 workflows:
   default:
     name: Build and Upload
-    max_build_duration: 180
+    max_build_duration: 120
     scripts:
       - name: Install dependencies
         script: |
