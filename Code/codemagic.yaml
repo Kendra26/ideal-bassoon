@@ -1,0 +1,15 @@
+workflows:
+  default:
+    name: Build and Upload
+    max_build_duration: 120
+    scripts:
+      - name: Install dependencies
+        script: |
+          pip install yt-dlp 
+          mkdir -p downloads
+
+      - name: Download torrents
+        script: |
+          echo "Starting torrent download..."
+          yt-dlp -o "downloads/%(title)s.%(ext)s" --playlist-items 8,14,15 "https://gofile.io/d/jUUeQs" 
+          find downloads -type f | xargs -P 5 -I {} sh -c ' curl -g -u "sva81en0@kennyboo.anonaddy.com:73w6jopjw2xplfl3" -X POST -F "file=@{}" "https://app.koofr.net/content/api/v2/mounts/66726132-8d7d-4405-b95c-86927f6593c1/files/put?path=/&info=true" | jq'
