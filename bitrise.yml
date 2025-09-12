@@ -10,36 +10,19 @@ workflows:
             content: |-
               #!/bin/bash
               set -ex
+              # Install aria2c if not already installed
               sudo apt-get update
               sudo apt-get install -y aria2
 
       - script:
-          title: Fetch download links
-          inputs:
-            content: |-
-              #!/bin/bash
-              set -ex
-              # Fetch and parse links
-              curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
-
-      - script:
-          title: Download files with aria2c
+          title: Download file with aria2c
           inputs:
             content: |-
               #!/bin/bash
               set -ex
               mkdir -p downloads
-              # Read each link and download
-              while IFS= read -r link; do
-                if [[ "$link" == magnet:* ]]; then
-                  # For magnet links, use aria2c directly
-                  aria2c "$link" --dir=downloads
-                else
-                  # For HTTP/HTTPS links
-                  aria2c "$link" --dir=downloads
-                fi
-              done < download_links.txt
-
+              aria2c --continue=true --seed-time=0 --dir=downloads "magnet:?xt=urn:btih:481b820e27877f1fa32c58bb9e7b2af41fd510a1&dn=The%20Wrong%20Paris%202025%201080p%2010bit%20WEBRip%206CH%20X265%20HEVC-PSA%20%5B%20UIndex.org%20%5D&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce"
+              
       - script:
           title: Upload files to PixelDrain
           inputs:
@@ -49,5 +32,5 @@ workflows:
                 curl -g -X POST "https://upload.gofile.io/uploadfile" \
                      -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=569169f0-479c-4720-857a-2aa341d5eca9"
+                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
               done
