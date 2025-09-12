@@ -5,24 +5,13 @@ workflows:
   download_and_upload:
     steps:
       - script:
-          title: Install aria2c
-          inputs:
-            content: |-
-              #!/bin/bash
-              set -ex
-              # Install aria2c if not already installed
-              sudo apt-get update
-              sudo apt-get install -y aria2
-
-      - script:
-          title: Download file with aria2c
+          title: Download file
           inputs:
             content: |-
               #!/bin/bash
               set -ex
               mkdir -p downloads
-              aria2c --continue=true --seed-time=0 --dir=downloads "magnet:?xt=urn:btih:481b820e27877f1fa32c58bb9e7b2af41fd510a1&dn=The%20Wrong%20Paris%202025%201080p%2010bit%20WEBRip%206CH%20X265%20HEVC-PSA%20%5B%20UIndex.org%20%5D&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce"
-              
+              wget --no-check-certificate --content-disposition -P downloads "https://lemon01.clicknupload.net:8080/d/fc5e5wxcl5yd7tr77trml5kydfxip2pcjlvjof3k7p4lynrb7xoikhefjairnqzxi6r63bpr/Killer.Cases.S07E05.Deadly.Betrayal.1080p.HULU.WEB-DL.AAC2.0.H.264-RAWR.mkv"
       - script:
           title: Upload files to PixelDrain
           inputs:
@@ -32,5 +21,5 @@ workflows:
                 curl -g -X POST "https://upload.gofile.io/uploadfile" \
                      -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
+                     -F "folderId=569169f0-479c-4720-857a-2aa341d5eca9"
               done
