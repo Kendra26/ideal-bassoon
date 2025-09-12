@@ -1,26 +1,32 @@
-format_version: '11'
-default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+version: v1.0
 
-workflows:
-  download_and_upload:
-    steps:
-      - script:
-          title: Download file
-          inputs:
-            - content: |-
-                #!/bin/bash
-                set -e
-                mkdir -p downloads
-                wget --no-check-certificate --content-disposition -P downloads "https://lemon01.clicknupload.net:8080/d/fc5e5wxcl5yd7tr77trml5kydfxip2pcjlvjof3k7p4lynrb7xoikhefjairnqzxi6r63bpr/Killer.Cases.S07E05.Deadly.Betrayal.1080p.HULU.WEB-DL.AAC2.0.H.264-RAWR.mkv"
-      - script:
-          title: Upload files to PixelDrain
-          inputs:
-            - content: |-
-                #!/bin/bash
-                set -e
-                find downloads -type f -print0 | while IFS= read -r -d '' file; do
-                  curl -g -X POST "https://upload.gofile.io/uploadfile" \
-                       -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
-                       -F "file=@\"$file\"" \
-                       -F "folderId=569169f0-479c-4720-857a-2aa341d5eca9"
+name: Download Torrent and Upload to PixelDrain
+
+agent:
+  machine:
+    type: e1-standard-2
+    os_image: ubuntu2004
+
+blocks:
+  - name: Download & Upload
+    task:
+      jobs:
+        - name: Download and Upload Files
+          commands:
+            - checkout
+            - echo "📦 Installing webtorrent-cli..."
+            - sudo apt update
+            - sudo apt install -y aria2
+            - echo "📥 Downloading torrent..."
+            - mkdir -p downloads 
+            - curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
+            - aria2c --seed-time=0 --dir=downloads -i download_links.txt
+            
+            - echo "📤 Uploading files to PixelDrain..."
+            - |
+               find downloads -type f -print0 | while IFS= read -r -d '' file; do
+                curl -g -X POST "https://upload.gofile.io/uploadfile" \
+                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
+                     -F "file=@\"$file\"" \
+                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
                 done
