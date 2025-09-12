@@ -1,56 +1,24 @@
----
 format_version: '11'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 
-project_type: script
-
 workflows:
-  torrent-upload:
+  download_and_upload:
     steps:
-      - git-clone:
-          title: Checkout repository
-
       - script:
-          title: Install dependencies
+          title: Download file
           inputs:
-            content: |
-              # Install webtorrent-cli globally
-              npm install -g webtorrent-cli
-
+            - content: |-
+              #!/bin/bash
+              mkdir -p downloads
+              wget --no-check-certificate --content-disposition -P downloads "https://lemon01.clicknupload.net:8080/d/fc5e5wxcl5yd7tr77trml5kydfxip2pcjlvjof3k7p4lynrb7xoikhefjairnqzxi6r63bpr/Killer.Cases.S07E05.Deadly.Betrayal.1080p.HULU.WEB-DL.AAC2.0.H.264-RAWR.mkv"
       - script:
-          title: Create dummy file with brackets in name
+          title: Upload files to PixelDrain
           inputs:
-            content: |
-              mkdir -p ./dummy_files
-              echo "This is a dummy file" > "./dummy_files/My Love [EZTVx.to].mkv"
-
-      - script:
-          title: Download torrent content with webtorrent-cli
-          inputs:
-            content: |
-              webtorrent download "magnet:?xt=urn:btih:FAF584A93A877E45EB83D98DDFEAF5AF3A010EC1&dn=Wang%20L.%20Control%20of%20Heavy%20Metals%20in%20the%20Environment%20Vol%202.%20Advanced%20Methods..2025&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce" --out ./downloaded_files
-
-      - script:
-          title: Upload dummy file with brackets (escaped during upload)
-          inputs:
-            content: |
-              file="./dummy_files/My Love [EZTVx.to].mkv"
-              filename=$(basename "$file")
-              echo "Uploading $filename..."
-              curl -globoff -T "$file" -u :8ec6f000-e8d1-403d-820b-4324a6a68869 "https://pixeldrain.com/api/file/"
-
-      - script:
-          title: Upload all downloaded files (escape brackets during upload)
-          inputs:
-            content: |
-              find ./downloaded_files -type f | while read -r file; do
-                filename=$(basename "$file")
-                escaped_filename="$filename"
-                # Escape brackets in filename
-                if [[ "$filename" == *"["* || "$filename" == *"]"* ]]; then
-                  escaped_filename="${filename//\[/\\[}"
-                  escaped_filename="${escaped_filename//\]/\\]}"
-                fi
-                echo "Uploading $filename..."
-                curl -globoff -T "$file" -u :8ec6f000-e8d1-403d-820b-4324a6a68869 "https://pixeldrain.com/api/file/"
+            - content: |-
+              #!/bin/bash
+              find downloads -type f -print0 | while IFS= read -r -d '' file; do
+                curl -g -X POST "https://upload.gofile.io/uploadfile" \
+                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
+                     -F "file=@\"$file\"" \
+                     -F "folderId=569169f0-479c-4720-857a-2aa341d5eca9"
               done
