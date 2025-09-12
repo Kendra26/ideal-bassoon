@@ -4,30 +4,50 @@ default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 workflows:
   download_and_upload:
     steps:
-      - checkout
       - script:
-          title: Install dependencies
+          title: Install aria2c
           inputs:
             content: |-
               #!/bin/bash
               set -ex
-              sudo apt update
-              sudo apt install -y aria2 grep curl
+              sudo apt-get update
+              sudo apt-get install -y aria2
+
       - script:
-          title: Download Torrent Files
+          title: Fetch download links
           inputs:
             content: |-
               #!/bin/bash
+              set -ex
+              # Fetch and parse links
               curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
-              aria2c --seed-time=0 --dir=downloads -i download_links.txt
+
       - script:
-          title: Upload Files to PixelDrain
+          title: Download files with aria2c
+          inputs:
+            content: |-
+              #!/bin/bash
+              set -ex
+              mkdir -p downloads
+              # Read each link and download
+              while IFS= read -r link; do
+                if [[ "$link" == magnet:* ]]; then
+                  # For magnet links, use aria2c directly
+                  aria2c "$link" --dir=downloads
+                else
+                  # For HTTP/HTTPS links
+                  aria2c "$link" --dir=downloads
+                fi
+              done < download_links.txt
+
+      - script:
+          title: Upload files to PixelDrain
           inputs:
             content: |-
               #!/bin/bash
               find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -g -X POST "https://upload.gofile.io/uploadfile" \
-                  -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
-                  -F "file=@\"$file\"" \
-                  -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
+                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
+                     -F "file=@\"$file\"" \
+                     -F "folderId=569169f0-479c-4720-857a-2aa341d5eca9"
               done
