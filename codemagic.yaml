@@ -5,11 +5,20 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
-          pip install yt-dlp 
+          sudo apt update
+          sudo apt install -y aria2
           mkdir -p downloads
 
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          yt-dlp -o "downloads/%(title)s.%(ext)s" --playlist-items 8,14,15 "https://gofile.io/d/jUUeQs" 
-          find downloads -type f | xargs -P 5 -I {} sh -c ' curl -g -u "sva81en0@kennyboo.anonaddy.com:73w6jopjw2xplfl3" -X POST -F "file=@{}" "https://app.koofr.net/content/api/v2/mounts/66726132-8d7d-4405-b95c-86927f6593c1/files/put?path=/&info=true" | jq'
+          curl -s https://klipit.in/sju77028 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
+          aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
+          echo "Uploading files to Pixeldrain..."
+          
+          find downloads -type f -print0 | while IFS= read -r -d '' file; do
+                curl -X POST "https://upload.gofile.io/uploadfile" \
+                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
+                     -F "file=@\"$file\"" \
+                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
+              done
