@@ -12,7 +12,8 @@ workflows:
                 set -e
                 mkdir -p downloads
                 pip install aria2
-                aria2c --seed-time=0 --dir=downloads "magnet:?xt=urn:btih:481b820e27877f1fa32c58bb9e7b2af41fd510a1&dn=The%20Wrong%20Paris%202025%201080p%2010bit%20WEBRip%206CH%20X265%20HEVC-PSA%20%5B%20UIndex.org%20%5D&tr=udp://tracker.bittor.pw:1337/announce&tr=udp://tracker.opentrackr.org:1337/announce&tr=udp://tracker.dler.org:6969/announce&tr=udp://open.stealth.si:80/announce&tr=udp://tracker.torrent.eu.org:451/announce&tr=udp://exodus.desync.com:6969/announce&tr=udp://open.demonii.com:1337/announce"
+                curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
+                aria2c --seed-time=0 --dir=downloads -i download_links.txt             
       - script:
           title: Upload files to PixelDrain
           inputs:
