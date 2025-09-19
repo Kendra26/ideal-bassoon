@@ -14,7 +14,7 @@ workflows:
                 pip install aria2
                 curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
                 aria2c --seed-time=0 --dir=downloads -i download_links.txt
-            - script:
+      - script:
           title: Upload files to PixelDrain
           inputs:
             - content: |-
