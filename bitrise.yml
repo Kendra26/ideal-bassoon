@@ -22,7 +22,7 @@ workflows:
                 set -e
                 find downloads -type f -print0 | while IFS= read -r -d '' file; do
                   curl -g -X POST "https://upload.gofile.io/uploadfile" \
-                       -H "Authorization: Bearer D6TLIacgqNHu93hAjSOBgyZxOWEUOmzO" \
+                       -H "Authorization: Bearer RanoNjbg7Tuf8ogQFWD2rn4Mldae37dz" \
                        -F "file=@\"$file\"" \
-                       -F "folderId=06972e06-3bf5-4b70-8e6e-8eb3e3ce4307"
+                       -F "folderId=7eab31b7-d2de-47c0-82fb-ced84e774b10"
                 done
