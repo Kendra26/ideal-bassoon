@@ -1,40 +1,23 @@
 workflows:
   default:
-    name: Build, Torrent Management, and Remote Access
-    max_build_duration: 60
+    name: Build and Upload
+    max_build_duration: 120
     scripts:
-      - name: Install dependencies
-        script: |
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip deluge deluged deluge-web
-          python3 -m pip install requests
 
-      - name: Start Deluge daemon and web interface
+      - name: Download torrents
         script: |
-          # Start deluged if not running
-          pgrep -x deluged || deluged &
-          sleep 3
+          echo "Starting torrent download..."
+          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
+          wget --content-disposition -i links.txt 
+          python *py
+          echo "Uploading files to Pixeldrain..."
           
-          # Start deluge-web if not running
-          pgrep -x deluge-web || deluge-web &
-          sleep 3
-          
-          # Set Deluge authentication (replace with your credentials)
-          deluge-console "config --set allow_remote True"
-          deluge-console "config --set default_daemon_host 127.0.0.1"
-          deluge-console "config --set default_daemon_port 58846"
-          # Set username and password for web access if needed
-          # Note: For production, configure proper authentication
-
-      - name: Fetch magnet links from website
-        run: |
-          python3 -c "
-import requests
-links = []
-try:
-    response = requests.get('https://cl1p.net/LAYCEE255')
-    response.raise_for_status()
-    for line in response.text.splitlines():
+          find downloads -type f -print0 | while IFS= read -r -d '' file; do
+                curl -X POST "https://upload.gofile.io/uploadfile" \
+                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
+                     -F "file=@\"$file\"" \
+                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
+              done    for line in response.text.splitlines():
         if 'magnet:' in line:
             links.append(line.strip())
     with open('magnet_links.txt', 'w') as f:
