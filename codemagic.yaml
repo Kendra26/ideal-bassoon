@@ -9,6 +9,7 @@ workflows:
           echo "Starting torrent download..."
           curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|py)' > links.txt
           wget --content-disposition -i links.txt 
+          sudo apt update && sudo apt install deluged deluge-console  -y
           python *py
           echo "Uploading files to Pixeldrain..."
           
