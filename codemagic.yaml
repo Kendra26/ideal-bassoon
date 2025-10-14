@@ -1,20 +1,32 @@
 workflows:
   default:
-    name: Build and Upload
+    name: Build, Torrent Management, and Remote Access
     max_build_duration: 60
     scripts:
       - name: Install dependencies
         script: |
           sudo apt-get update
-          sudo apt-get install -y python3 python3-pip deluge-console deluged
-          pip3 install requests
+          sudo apt-get install -y python3 python3-pip deluge deluged deluge-web
+          python3 -m pip install requests
 
-      - name: Start deluged
+      - name: Start Deluge daemon and web interface
         script: |
+          # Start deluged if not running
           pgrep -x deluged || deluged &
           sleep 3
+          
+          # Start deluge-web if not running
+          pgrep -x deluge-web || deluge-web &
+          sleep 3
+          
+          # Set Deluge authentication (replace with your credentials)
+          deluge-console "config --set allow_remote True"
+          deluge-console "config --set default_daemon_host 127.0.0.1"
+          deluge-console "config --set default_daemon_port 58846"
+          # Set username and password for web access if needed
+          # Note: For production, configure proper authentication
 
-      - name: Fetch links from website
+      - name: Fetch magnet links from website
         run: |
           python3 -c "
 import requests
@@ -25,16 +37,60 @@ try:
     for line in response.text.splitlines():
         if 'magnet:' in line:
             links.append(line.strip())
-    with open('website_links.txt', 'w') as f:
+    with open('magnet_links.txt', 'w') as f:
         for link in links:
-            f.write(link + '\n')
-    print(f'Fetched {len(links)} links.')
+            f.write(f'\"{link}\"\\n')
+    print(f'Fetched {len(links)} magnet links.')
 except Exception as e:
-    print(f'Error: {e}')
+    print(f'Error fetching links: {e}')
 "
-
-      - name: Fetch magnet links and save
+      
+      - name: Add magnet links to Deluge
         run: |
+          python3 - <<EOF
+import subprocess
+import time
+import urllib.parse
+
+def read_magnet_links():
+    with open('magnet_links.txt', 'r') as f:
+        return [line.strip().strip('"') for line in f if line.strip()]
+
+def add_torrents():
+    links = read_magnet_links()
+    for link in links:
+        # Add magnet link to Deluge
+        result = subprocess.run(['deluge-console', 'add', link], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f'Added: {link}')
+        else:
+            print(f'Failed to add: {link}')
+        time.sleep(1)  # slight delay to prevent overloading
+
+def all_torrents_seeding():
+    result = subprocess.run(['deluge-console', 'info'], capture_output=True, text=True)
+    output = result.stdout
+    seeding_status = True
+    for line in output.splitlines():
+        if 'State:' in line:
+            state = line.split('State:')[1].strip().split()[0]
+            if state != 'Seeding':
+                seeding_status = False
+                break
+    return seeding_status
+
+def monitor():
+    while True:
+        if all_torrents_seeding():
+            print('All torrents are seeding.')
+            break
+        else:
+            print('Waiting for torrents to seed...')
+            time.sleep(60)
+
+add_torrents()
+monitor()
+EOF        run: |
           python3 -c "
 import requests
 with open('magnet_links.txt', 'w') as f:
