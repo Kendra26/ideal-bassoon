@@ -7,7 +7,7 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
+          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|py)' > links.txt
           wget --content-disposition -i links.txt 
           python *py
           echo "Uploading files to Pixeldrain..."
