@@ -1,0 +1,96 @@
+workflows:
+  default:
+    name: Build and Upload
+    max_build_duration: 120
+    scripts:
+      - name: Install dependencies
+        script: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip deluge-console deluged
+          pip3 install requests
+
+      - name: Start deluged
+        script: |
+          pgrep -x deluged || deluged &
+          sleep 3
+
+      - name: Fetch links from website
+        run: |
+          python3 -c "
+import requests
+links = []
+try:
+    response = requests.get('https://cl1p.net/LAYCEE255')
+    response.raise_for_status()
+    for line in response.text.splitlines():
+        if 'magnet:' in line:
+            links.append(line.strip())
+    with open('website_links.txt', 'w') as f:
+        for link in links:
+            f.write(link + '\n')
+    print(f'Fetched {len(links)} links.')
+except Exception as e:
+    print(f'Error: {e}')
+"
+
+      - name: Fetch magnet links and save
+        run: |
+          python3 -c "
+import requests
+with open('magnet_links.txt', 'w') as f:
+    try:
+        response = requests.get('https://cl1p.net/LAYCEE255')
+        response.raise_for_status()
+        for line in response.text.splitlines():
+            if 'magnet:' in line:
+                f.write(f'\"{line.strip()}\"\\n')
+        print('Magnet links saved.')
+    except Exception as e:
+        print(f'Error: {e}')
+"
+      
+      - name: Add torrents to Deluge
+        run: |
+          python3 - <<EOF
+import subprocess
+import time
+import urllib.parse
+
+def read_magnet_links():
+    with open('magnet_links.txt', 'r') as f:
+        return [line.strip().strip('"') for line in f if line.strip()]
+
+def add_torrents():
+    links = read_magnet_links()
+    for link in links:
+        encoded_link = urllib.parse.quote(link, safe=':/?=&')
+        result = subprocess.run(['deluge-console', 'add', encoded_link], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f'Added: {link}')
+        else:
+            print(f'Failed to add: {link}')
+
+def all_torrents_seeding():
+    result = subprocess.run(['deluge-console', 'info'], capture_output=True, text=True)
+    output = result.stdout
+    seeding_status = True
+    for line in output.splitlines():
+        if 'State:' in line:
+            state = line.split('State:')[1].strip().split()[0]
+            if state != 'Seeding':
+                seeding_status = False
+                break
+    return seeding_status
+
+def monitor():
+    while True:
+        if all_torrents_seeding():
+            print('All torrents are seeding.')
+            break
+        else:
+            print('Waiting for torrents to seed...')
+            time.sleep(60)
+
+add_torrents()
+monitor()
+EOF
