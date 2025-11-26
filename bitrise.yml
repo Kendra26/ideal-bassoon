@@ -24,5 +24,5 @@ workflows:
                   curl -g -X POST "https://upload.gofile.io/uploadfile" \
                        -H "Authorization: Bearer D6TLIacgqNHu93hAjSOBgyZxOWEUOmzO" \
                        -F "file=@\"$file\"" \
-                       -F "folderId=06972e06-3bf5-4b70-8e6e-8eb3e3ce4307"
+                       -F "folderId=5c4eb455-4010-4125-bd9c-3fae891cbcd5"
                 done
