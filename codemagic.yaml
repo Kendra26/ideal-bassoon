@@ -18,7 +18,7 @@ workflows:
           
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -X POST "https://upload.gofile.io/uploadfile" \
-                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
+                     -H "Authorization: Bearer VoTnBsgTAiTqm97X6FmvdmBswsMPl6SG" \
                      -F "file=@\"$file\"" \
-                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
+                     -F "folderId=1f32e2fe-21ce-46d2-943b-10c56acb3a1d"
               done
