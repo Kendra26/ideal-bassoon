@@ -3,14 +3,17 @@ workflows:
     name: Build and Upload
     max_build_duration: 120
     scripts:
+      - name: Install dependencies
+        script: |
+          sudo apt update
+          sudo apt install -y aria2
+          mkdir -p downloads
 
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|py)' > links.txt
-          wget --content-disposition -i links.txt 
-          sudo apt update && sudo apt install deluged deluge-console  -y
-          python *py
+          curl -s https://textdoc.co/5xvG5PnuTb838mhsX | grep -oE 'magnet:\S+' > links.txt
+          aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
           echo "Uploading files to Pixeldrain..."
           
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
@@ -18,6 +21,4 @@ workflows:
                      -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
                      -F "file=@\"$file\"" \
                      -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
-              done    
-              
-            
+              done
