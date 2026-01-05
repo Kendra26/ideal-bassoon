@@ -14,27 +14,53 @@ workflows:
                 pip install aria2
                 curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
                 aria2c --seed-time=0 --dir=downloads -i download_links.txt
-                - script:
-          title: Rename File
+      - script:
+          title: Upload files to FileMirage
           inputs:
             - content: |-
                 #!/bin/bash
-            shopt -s nocasematch
-            find ./downloads -type f -print0 | while IFS= read -r -d '' f; do
-              filename=$(basename "$f")
-              echo "Processing file: $filename"
-              ext="${filename##*.}"
-              base="${filename%.*}"
-              echo "Extension: $ext, Base: $base"
 
-              # Replace dots with spaces in the base filename
-              newbase="${base//./ }"
-              echo "New base after replacing dots with spaces: '$newbase'"
+                # Set your folder path here
+                FOLDER_PATH="downloads"  # Update this if needed
 
-              # Construct new filename with original extension
-              newname="${f%/*}/$newbase.$ext"
-              echo "Intended new filename: $newname"
+                # API base URL
+                BASE_API="https://filemirage.com/api"
 
+                # Your API token
+                API_TOKEN="9QQH-DGES-CWQZ-FXNV"
+
+                # Fetch upload server info
+                echo "Fetching available upload server..."
+                response=$(curl -s "$BASE_API/servers")
+                success=$(echo "$response" | jq -r '.success')
+
+                if [ "$success" != "true" ]; then
+                    echo "Failed to get server info: $(echo "$response" | jq -r '.message')"
+                    exit 1
+                fi
+
+                SERVER=$(echo "$response" | jq -r '.data.server')
+                UPLOAD_ID=$(echo "$response" | jq -r '.data.upload_id')
+
+                echo "Using server: $SERVER"
+                echo "Upload ID: $UPLOAD_ID"
+
+                # Upload files
+                find "$FOLDER_PATH" -type f | while read -r FILE; do
+                    FILENAME=$(basename "$FILE")
+                    echo "Uploading: $FILE"
+
+                    RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" \
+                        -F "file=@$FILE;filename=$FILENAME" \
+                        "$SERVER/upload.php")
+
+                    success=$(echo "$RESPONSE" | jq -r '.success')
+                    if [ "$success" != "true" ]; then
+                        echo "Failed to upload $FILENAME: $(echo "$RESPONSE" | jq -r '.message')"
+                    else
+                        echo "Successfully uploaded: $FILENAME"
+                    fi
+                done
               # Only rename if filename differs
               if [ "$filename" != "$newbase.$ext" ]; then
                 echo "Renaming '$filename' to '$newbase.$ext'"
@@ -43,15 +69,3 @@ workflows:
                 echo "No renaming needed for: $filename"
               fi
             done
-            - script:
-          title: Upload files to PixelDrain
-          inputs:
-            - content: |-
-                #!/bin/bash
-                set -e
-                find downloads -type f -print0 | while IFS= read -r -d '' file; do
-                  curl -g -X POST "https://upload.gofile.io/uploadfile" \
-                       -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
-                       -F "file=@\"$file\"" \
-                       -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
-                done
