@@ -61,11 +61,3 @@ workflows:
                         echo "Successfully uploaded: $FILENAME"
                     fi
                 done
-              # Only rename if filename differs
-              if [ "$filename" != "$newbase.$ext" ]; then
-                echo "Renaming '$filename' to '$newbase.$ext'"
-                mv "$f" "$newname"
-              else
-                echo "No renaming needed for: $filename"
-              fi
-            done
