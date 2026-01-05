@@ -6,30 +6,49 @@ workflows:
       - name: Install dependencies
         script: |
           sudo apt update
-          sudo apt install -y aria2
+          sudo apt install -y aria2 jq
           mkdir -p downloads
 
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|rar|zip)' > links.txt
+          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
           aria2c --seed-time=0 --dir=downloads --file-allocation=none "https://d1000.userdrive.org:8443/d/2ojv7zl52as5ln23bxk7fqr4exzinst755hzxuopi7k6lmri5bkrubscgzltjz4kexngb5gv/Mystery.Lane.S01.720p.IVIEW.WEB-DL.AAC2.0.x264-TeamK9.rar"
           
-      - name: Upload files to BuzzHeavier
-        script: |
-          #!/bin/bash
+          echo "Uploading files to Filemirage..."
           
-          # Set your variables
-          LOCAL_DIR="downloads"
-          TARGET_URL="https://w.buzzheavier.com/bnyznwosiir7"
-          ACCOUNT_ID="HZ7U0SXV0YKJYO0C77ZI"
-          
-          # Loop through all files in the directory recursively
-          find "$LOCAL_DIR" -type f | while read -r FILE; do
-              # Get the filename only
+          # Upload files to Filemirage
+          FOLDER_PATH="downloads"  # Set your folder path here
+          BASE_API="https://filemirage.com/api"
+          API_TOKEN="9QQH-DGES-CWQZ-FXNV"
+
+          echo "Fetching available upload server..."
+          response=$(curl -s "$BASE_API/servers")
+          success=$(echo "$response" | jq -r '.success')
+
+          if [ "$success" != "true" ]; then
+              echo "Failed to get server info: $(echo "$response" | jq -r '.message')"
+              exit 1
+          fi
+
+          SERVER=$(echo "$response" | jq -r '.data.server')
+          UPLOAD_ID=$(echo "$response" | jq -r '.data.upload_id')
+
+          echo "Using server: $SERVER"
+          echo "Upload ID: $UPLOAD_ID"
+
+          find "$FOLDER_PATH" -type f | while read -r FILE; do
               FILENAME=$(basename "$FILE")
-              # Upload the file
-              curl -#o - -T "$FILE" \
-              -H "Authorization: Bearer $ACCOUNT_ID" \
-              "$TARGET_URL/$FILENAME"
+              echo "Uploading: $FILE"
+
+              RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" \
+                  -F "file=@$FILE;filename=$FILENAME" \
+                  "$SERVER/upload.php")
+
+              success=$(echo "$RESPONSE" | jq -r '.success')
+              if [ "$success" != "true" ]; then
+                  echo "Failed to upload $FILENAME: $(echo "$RESPONSE" | jq -r '.message')"
+              else
+                  echo "Successfully uploaded: $FILENAME"
+              fi
           done
