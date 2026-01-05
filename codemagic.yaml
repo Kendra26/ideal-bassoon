@@ -12,13 +12,24 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
+          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|rar|zip)' > links.txt
           aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
-          echo "Uploading files to Pixeldrain..."
           
-          find downloads -type f -print0 | while IFS= read -r -d '' file; do
-                curl -X POST "https://upload.gofile.io/uploadfile" \
-                     -H "Authorization: Bearer NkEP9nPmjC5bYQB7ZabZKnsUEBi7ww85" \
-                     -F "file=@\"$file\"" \
-                     -F "folderId=33072955-da61-4062-bad6-71f3bc339712"
-              done
+      - name: Upload files to BuzzHeavier
+        script: |
+          #!/bin/bash
+          
+          # Set your variables
+          LOCAL_DIR="downloads"
+          TARGET_URL="https://w.buzzheavier.com/bnyznwosiir7"
+          ACCOUNT_ID="HZ7U0SXV0YKJYO0C77ZI"
+          
+          # Loop through all files in the directory recursively
+          find "$LOCAL_DIR" -type f | while read -r FILE; do
+              # Get the filename only
+              FILENAME=$(basename "$FILE")
+              # Upload the file
+              curl -#o - -T "$FILE" \
+              -H "Authorization: Bearer $ACCOUNT_ID" \
+              "$TARGET_URL/$FILENAME"
+          done
