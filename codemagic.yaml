@@ -13,7 +13,7 @@ workflows:
         script: |
           echo "Starting torrent download..."
           curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|rar|zip)' > links.txt
-          aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
+          aria2c --seed-time=0 --dir=downloads --file-allocation=none "https://d1000.userdrive.org:8443/d/2ojv7zl52as5ln23bxk7fqr4exzinst755hzxuopi7k6lmri5bkrubscgzltjz4kexngb5gv/Mystery.Lane.S01.720p.IVIEW.WEB-DL.AAC2.0.x264-TeamK9.rar"
           
       - name: Upload files to BuzzHeavier
         script: |
