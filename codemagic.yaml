@@ -1,7 +1,6 @@
 workflows:
   torrent-upload:
     name: Torrent Download & Smart Upload to Filemirage
-    instance_type: linux
     max_build_duration: 120
     environment:
       vars:
@@ -9,8 +8,9 @@ workflows:
     scripts:
       - name: Install system dependencies
         script: |
-          sudo apt update
-          sudo apt install -y python3 python3-pip python3-libtorrent || pip3 install libtorrent requests
+          brew update
+          brew install libtorrent-rasterbar
+          pip3 install requests libtorrent
 
       - name: Download, Zip Conditions & Upload
         script: |
