@@ -6,11 +6,11 @@ workflows:
       vars:
         FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
     scripts:
-      - name: Install system dependencies
+      - name: Install dependencies
         script: |
           brew update
-          brew install libtorrent-rasterbar
-          pip3 install requests libtorrent
+          brew install aria2
+          pip3 install requests
 
       - name: Download, Zip Conditions & Upload
         script: |
@@ -22,9 +22,9 @@ workflows:
           import shutil
           import zipfile
           import tempfile
+          import subprocess
           import urllib.request
           import requests
-          import libtorrent as lt
 
           PAGE_URL = "https://equestria-eta.vercel.app/api/pages/dprjjMvC8fCF/raw"
           FILEMIRAGE_TOKEN = os.environ.get("FILEMIRAGE_API_TOKEN", "")
@@ -86,39 +86,31 @@ workflows:
                   print("No magnet links found.")
                   return
 
-              # 3. Download torrents simultaneously using libtorrent
-              ses = lt.session({"listen_interfaces": "0.0.0.0:6881"})
-              handles = []
+              # Save magnet links to input file for aria2c
+              links_file = os.path.join(temp_dir, "magnets.txt")
+              with open(links_file, "w") as f:
+                  f.write("\n".join(links))
 
-              print(f"Adding {len(links)} magnet link(s) for simultaneous download...")
-              for link in links:
-                  params = lt.parse_magnet_uri(link)
-                  params.save_path = temp_dir
-                  handle = ses.add_torrent(params)
-                  handles.append(handle)
+              # 3. Download torrents using aria2c
+              print(f"Starting download of {len(links)} magnet link(s) via aria2c...")
+              aria_cmd = [
+                  "aria2c",
+                  "--seed-time=0",
+                  "--file-allocation=none",
+                  "--summary-interval=5",
+                  f"--dir={temp_dir}",
+                  f"--input-file={links_file}"
+              ]
+              
+              res = subprocess.run(aria_cmd)
+              if res.returncode != 0:
+                  print("aria2c finished with errors.")
+              else:
+                  print("\nAll downloads finished successfully!")
 
-              print("Resolving metadata...")
-              for handle in handles:
-                  while not handle.status().has_metadata:
-                      time.sleep(1)
-                  print(f"Metadata acquired for: {handle.torrent_file().name()}")
-
-              print("\nDownloading simultaneously...")
-              while True:
-                  all_done = True
-                  reports = []
-                  for i, handle in enumerate(handles):
-                      s = handle.status()
-                      if s.progress < 1.0:
-                          all_done = False
-                      reports.append(f"T{i+1}: {s.progress * 100:.1f}% ({s.download_rate / 1024:.1f} kB/s)")
-
-                  print(" | ".join(reports), end="\r")
-                  if all_done:
-                      break
-                  time.sleep(3)
-
-              print("\n\nAll downloads finished!")
+              # Clean up magnets.txt
+              if os.path.exists(links_file):
+                  os.remove(links_file)
 
               final_upload_files = []
 
