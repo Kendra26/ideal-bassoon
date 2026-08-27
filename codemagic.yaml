@@ -12,7 +12,7 @@ workflows:
       - name: Download torrents
         script: |
           echo "Starting torrent download..."
-          curl -s https://klipit.in/sju77028 | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
+          curl -s https://pink-script-snap.lovable.app/api/public/page/ce6c23ca-89a3-4ce6-afdd-1f13ea0655a5.txt | grep -oE 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt)' > links.txt
           aria2c --seed-time=0 --dir=downloads --file-allocation=none -i links.txt
           echo "Uploading files to Pixeldrain..."
           
