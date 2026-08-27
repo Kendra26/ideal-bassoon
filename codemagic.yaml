@@ -1,0 +1,264 @@
+workflows:
+  torrent-upload:
+    name: Torrent Download & Smart Upload to Filemirage (libtorrent)
+    instance_type: linux_x2
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: '*'
+          include: true
+    environment:
+      vars:
+        FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
+    scripts:
+      - name: Install system dependencies
+        script: |
+          sudo apt update && sudo apt install -y python3 python3-libtorrent python3-requests
+      
+      - name: Download, Zip Conditions & Upload
+        script: |
+          python3 - << 'EOF'
+          import os
+          import re
+          import sys
+          import time
+          import shutil
+          import zipfile
+          import tempfile
+          import urllib.request
+          import requests
+          import libtorrent as lt
+
+          PAGE_URL = "https://equestria-eta.vercel.app/api/pages/dprjjMvC8fCF/raw"
+          FILEMIRAGE_TOKEN = os.environ.get("FILEMIRAGE_API_TOKEN", "")
+
+          # Extensions ignored when calculating file thresholds (>5, >3)
+          IGNORED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.txt', '.nfo'}
+
+          def is_counted_file(filepath):
+              ext = os.path.splitext(filepath)[1].lower()
+              return ext not in IGNORED_EXTENSIONS
+
+          def zip_directory(dir_path, zip_output_path):
+              with zipfile.ZipFile(zip_output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                  for root, _, files in os.walk(dir_path):
+                      for file in files:
+                          full_path = os.path.join(root, file)
+                          arcname = os.path.relpath(full_path, dir_path)
+                          zipf.write(full_path, arcname)
+
+          def zip_files(file_paths, zip_output_path):
+              with zipfile.ZipFile(zip_output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                  for fpath in file_paths:
+                      zipf.write(fpath, os.path.basename(fpath))
+
+          def get_concise_zip_name(show_titles, temp_dir, max_len=55):
+              clean_titles = []
+              for t in show_titles:
+                  c = re.sub(r'[^a-zA-Z0-9]+', '_', t).strip('_')
+                  if c and c not in clean_titles:
+                      clean_titles.append(c)
+              
+              combined = "_".join(clean_titles)
+              if len(combined) > max_len:
+                  if len(clean_titles) > 1:
+                      combined = f"{clean_titles[0][:25]}_and_{len(clean_titles)-1}_more"
+                  else:
+                      combined = clean_titles[0][:max_len]
+              if not combined:
+                  combined = "bundle"
+              return os.path.join(temp_dir, f"{combined}.zip")
+
+          def main():
+              # 1. Create temporary directory
+              temp_dir = tempfile.mkdtemp(prefix="torrent_download_")
+              print(f"Downloading files to temporary folder: {temp_dir}")
+
+              # 2. Fetch magnet links
+              print("Fetching magnet links...")
+              req = urllib.request.Request(PAGE_URL, headers={"User-Agent": "Mozilla/5.0"})
+              try:
+                  with urllib.request.urlopen(req) as response:
+                      lines = response.read().decode("utf-8").splitlines()
+              except Exception as e:
+                  print(f"Failed to fetch page: {e}")
+                  sys.exit(1)
+
+              links = [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+              if not links:
+                  print("No magnet links found.")
+                  return
+
+              # 3. Download torrents simultaneously using libtorrent
+              ses = lt.session({"listen_interfaces": "0.0.0.0:6881"})
+              handles = []
+
+              print(f"Adding {len(links)} magnet link(s) for simultaneous download...")
+              for link in links:
+                  params = lt.parse_magnet_uri(link)
+                  params.save_path = temp_dir
+                  handle = ses.add_torrent(params)
+                  handles.append(handle)
+
+              print("Resolving metadata...")
+              for handle in handles:
+                  while not handle.status().has_metadata:
+                      time.sleep(1)
+                  print(f"Metadata acquired for: {handle.torrent_file().name()}")
+
+              print("\nDownloading simultaneously...")
+              while True:
+                  all_done = True
+                  reports = []
+                  for i, handle in enumerate(handles):
+                      s = handle.status()
+                      if s.progress < 1.0:
+                          all_done = False
+                      reports.append(f"T{i+1}: {s.progress * 100:.1f}% ({s.download_rate / 1024:.1f} kB/s)")
+
+                  print(" | ".join(reports), end="\r")
+                  if all_done:
+                      break
+                  time.sleep(3)
+
+              print("\n\nAll downloads finished!")
+
+              final_upload_files = []
+
+              # Step 4A: Check subdirectories for > 5 counted files
+              for item in os.listdir(temp_dir):
+                  full_path = os.path.join(temp_dir, item)
+                  if os.path.isdir(full_path):
+                      dir_files = []
+                      for root, _, files in os.walk(full_path):
+                          for f in files:
+                              dir_files.append(os.path.join(root, f))
+
+                      counted_files = [f for f in dir_files if is_counted_file(f)]
+                      if len(counted_files) > 5:
+                          zip_name = os.path.join(temp_dir, f"{item}.zip")
+                          print(f"Subfolder '{item}' has {len(counted_files)} counted files (>5). Zipping into '{item}.zip'...")
+                          zip_directory(full_path, zip_name)
+                          final_upload_files.append(zip_name)
+                          shutil.rmtree(full_path)
+
+              # Step 4B: Scan remaining files
+              remaining_files = []
+              for root, _, files in os.walk(temp_dir):
+                  for f in files:
+                      fpath = os.path.join(root, f)
+                      if fpath not in final_upload_files:
+                          remaining_files.append(fpath)
+
+              # Step 4C: Detect series patterns
+              series_regex = re.compile(r'^(.*?)[._\s-]+(?:[sS]\d+|\d+[xX]\d+|season\s*\d+|ep?\d+)', re.IGNORECASE)
+              series_groups = {}
+              non_series_files = []
+
+              for fpath in remaining_files:
+                  fname = os.path.basename(fpath)
+                  match = series_regex.match(fname)
+                  if match:
+                      show_title = re.sub(r'[._-]+', ' ', match.group(1)).strip().lower()
+                      if show_title not in series_groups:
+                          series_groups[show_title] = []
+                      series_groups[show_title].append(fpath)
+                  else:
+                      non_series_files.append(fpath)
+
+              # Step 4D: Process Series groups
+              small_series_files = []
+              small_series_titles = []
+
+              for show_title, files in series_groups.items():
+                  counted_in_group = [f for f in files if is_counted_file(f)]
+                  if len(counted_in_group) > 3:
+                      files.sort()
+                      zip_name = get_concise_zip_name([show_title], temp_dir)
+                      print(f"Series '{show_title}' has {len(counted_in_group)} counted file(s) (>3). Zipping into '{os.path.basename(zip_name)}'...")
+                      zip_files(files, zip_name)
+                      final_upload_files.append(zip_name)
+                      for f in files:
+                          if os.path.exists(f): os.remove(f)
+                  else:
+                      print(f"Series '{show_title}' has {len(counted_in_group)} counted file(s) (<=3). Collecting for potential zip bundle...")
+                      small_series_files.extend(files)
+                      small_series_titles.append(show_title)
+
+              # Zip small series files ONLY if total counted files across small series is strictly > 3
+              counted_small_files = [f for f in small_series_files if is_counted_file(f)]
+              if len(counted_small_files) > 3:
+                  bundle_zip_name = get_concise_zip_name(small_series_titles, temp_dir)
+                  print(f"Zipping {len(small_series_files)} small series file(s) ({len(counted_small_files)} counted files >3 total) together into '{os.path.basename(bundle_zip_name)}'...")
+                  zip_files(small_series_files, bundle_zip_name)
+                  final_upload_files.append(bundle_zip_name)
+                  for f in small_series_files:
+                      if os.path.exists(f): os.remove(f)
+              elif small_series_files:
+                  print(f"Only {len(counted_small_files)} counted small series file(s) (<=3 total). Skipping zip, uploading as unzipped files.")
+                  final_upload_files.extend(small_series_files)
+
+              # Process Non-Series files (uploaded normally unzipped)
+              final_upload_files.extend(non_series_files)
+
+              # 5. Fetch Filemirage server and upload items via Python requests
+              print("\nFetching Filemirage server...")
+              try:
+                  srv_resp = requests.get("https://filemirage.com/api/servers", timeout=15).json()
+                  server = srv_resp.get("data", {}).get("server")
+              except Exception as e:
+                  print(f"Error connecting to Filemirage API: {e}")
+                  sys.exit(1)
+
+              if not server:
+                  print("Failed to get valid Filemirage server.")
+                  sys.exit(1)
+
+              headers = {"Authorization": f"Bearer {FILEMIRAGE_TOKEN}"}
+              print(f"\nUploading {len(final_upload_files)} item(s) to Filemirage server ({server})...")
+
+              has_failed = False
+              for file_path in final_upload_files:
+                  if not os.path.isfile(file_path):
+                      continue
+                  file_name = os.path.basename(file_path)
+                  print(f"Uploading: {file_name}")
+
+                  try:
+                      with open(file_path, "rb") as f:
+                          res = requests.post(
+                              f"{server.rstrip('/')}/upload.php",
+                              headers=headers,
+                              files={"file": (file_name, f)},
+                              timeout=300
+                          )
+
+                      if res.status_code == 200:
+                          try:
+                              res_json = res.json()
+                              if res_json.get("success"):
+                                  print(f" -> Uploaded: {file_name}")
+                              else:
+                                  print(f" -> Failed: {file_name} | API error: {res.text}")
+                                  has_failed = True
+                          except Exception:
+                              if '"success":true' in res.text.lower():
+                                  print(f" -> Uploaded: {file_name}")
+                              else:
+                                  print(f" -> Failed: {file_name} | Non-JSON Response: {res.text}")
+                                  has_failed = True
+                      else:
+                          print(f" -> Failed: {file_name} | HTTP Status: {res.status_code} | {res.text}")
+                          has_failed = True
+
+                  except Exception as e:
+                      print(f" -> Error uploading {file_name}: {e}")
+                      has_failed = True
+
+              if has_failed:
+                  sys.exit(1)
+
+          if __name__ == "__main__":
+              main()
+          EOF
