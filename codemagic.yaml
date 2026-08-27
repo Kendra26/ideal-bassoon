@@ -1,7 +1,7 @@
 workflows:
   torrent-upload:
     name: Torrent Download & Smart Upload to Filemirage
-    instance_type: linux_x86_64
+    instance_type: linux
     max_build_duration: 120
     environment:
       vars:
