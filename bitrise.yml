@@ -3,26 +3,208 @@ default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 
 workflows:
   download_and_upload:
+    envs:
+      - FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
+      - PAGE_URL: 'https://pink-script-snap.lovable.app/api/public/page/ce6c23ca-89a3-4ce6-afdd-1f13ea0655a5.txt'
     steps:
       - script:
-          title: Download file
+          title: Install Dependencies & Download via aria2
           inputs:
             - content: |-
                 #!/bin/bash
                 set -e
+
+                # Install aria2 system package and Python requests library
+                sudo apt-get update && sudo apt-get install -y aria2 python3-pip
+                pip3 install requests
+
                 mkdir -p downloads
-                pip install aria2
-                curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
-                aria2c --seed-time=0 --dir=downloads -i download_links.txt
+
+                # Extract magnet and direct media links from target page
+                curl -s "$PAGE_URL" | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
+
+                if [ -s download_links.txt ]; then
+                  aria2c --seed-time=0 --dir=downloads -i download_links.txt || true
+                else
+                  echo "No download links found."
+                fi
+
       - script:
-          title: Upload files to PixelDrain
+          title: Smart Zip and Upload to Filemirage
           inputs:
             - content: |-
                 #!/bin/bash
                 set -e
-                find downloads -type f -print0 | while IFS= read -r -d '' file; do
-                  curl -g -X POST "https://upload.gofile.io/uploadfile" \
-                       -H "Authorization: Bearer D6TLIacgqNHu93hAjSOBgyZxOWEUOmzO" \
-                       -F "file=@\"$file\"" \
-                       -F "folderId=5c4eb455-4010-4125-bd9c-3fae891cbcd5"
-                done
+
+                python3 - << 'EOF'
+                import os
+                import re
+                import sys
+                import shutil
+                import zipfile
+                import requests
+
+                DOWNLOAD_DIR = "downloads"
+                FILEMIRAGE_TOKEN = os.environ.get("FILEMIRAGE_API_TOKEN", "")
+                IGNORED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.txt', '.nfo'}
+
+                def is_counted_file(filepath):
+                    ext = os.path.splitext(filepath)[1].lower()
+                    return ext not in IGNORED_EXTENSIONS
+
+                def zip_directory(dir_path, zip_output_path):
+                    with zipfile.ZipFile(zip_output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for root, _, files in os.walk(dir_path):
+                            for file in files:
+                                full_path = os.path.join(root, file)
+                                arcname = os.path.relpath(full_path, dir_path)
+                                zipf.write(full_path, arcname)
+
+                def zip_files(file_paths, zip_output_path):
+                    with zipfile.ZipFile(zip_output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for fpath in file_paths:
+                            zipf.write(fpath, os.path.basename(fpath))
+
+                def get_concise_zip_name(show_titles, output_dir, max_len=55):
+                    clean_titles = []
+                    for t in show_titles:
+                        c = re.sub(r'[^a-zA-Z0-9]+', '_', t).strip('_')
+                        if c and c not in clean_titles:
+                            clean_titles.append(c)
+                    
+                    combined = "_".join(clean_titles)
+                    if len(combined) > max_len:
+                        if len(clean_titles) > 1:
+                            combined = f"{clean_titles[0][:25]}_and_{len(clean_titles)-1}_more"
+                        else:
+                            combined = clean_titles[0][:max_len]
+                    if not combined:
+                        combined = "bundle"
+                    return os.path.join(output_dir, f"{combined}.zip")
+
+                def main():
+                    if not os.path.exists(DOWNLOAD_DIR):
+                        print("Download directory does not exist.")
+                        return
+
+                    final_upload_files = []
+
+                    # 1. Process subdirectories with > 5 counted files
+                    for item in os.listdir(DOWNLOAD_DIR):
+                        full_path = os.path.join(DOWNLOAD_DIR, item)
+                        if os.path.isdir(full_path):
+                            dir_files = []
+                            for root, _, files in os.walk(full_path):
+                                for f in files:
+                                    dir_files.append(os.path.join(root, f))
+
+                            counted_files = [f for f in dir_files if is_counted_file(f)]
+                            if len(counted_files) > 5:
+                                zip_name = os.path.join(DOWNLOAD_DIR, f"{item}.zip")
+                                print(f"Subfolder '{item}' has {len(counted_files)} counted files (>5). Zipping into '{item}.zip'...")
+                                zip_directory(full_path, zip_name)
+                                final_upload_files.append(zip_name)
+                                shutil.rmtree(full_path)
+
+                    # 2. Collect remaining unzipped files
+                    remaining_files = []
+                    for root, _, files in os.walk(DOWNLOAD_DIR):
+                        for f in files:
+                            fpath = os.path.join(root, f)
+                            if fpath not in final_upload_files:
+                                remaining_files.append(fpath)
+
+                    # 3. Detect TV/Anime series filename patterns
+                    series_regex = re.compile(r'^(.*?)[._\s-]+(?:[sS]\d+|\d+[xX]\d+|season\s*\d+|ep?\d+)', re.IGNORECASE)
+                    series_groups = {}
+                    non_series_files = []
+
+                    for fpath in remaining_files:
+                        fname = os.path.basename(fpath)
+                        match = series_regex.match(fname)
+                        if match:
+                            show_title = re.sub(r'[._-]+', ' ', match.group(1)).strip().lower()
+                            if show_title not in series_groups:
+                                series_groups[show_title] = []
+                            series_groups[show_title].append(fpath)
+                        else:
+                            non_series_files.append(fpath)
+
+                    # 4. Process individual series groups (>3 counted files) vs small series groups
+                    small_series_files = []
+                    small_series_titles = []
+
+                    for show_title, files in series_groups.items():
+                        counted_in_group = [f for f in files if is_counted_file(f)]
+                        if len(counted_in_group) > 3:
+                            files.sort()
+                            zip_name = get_concise_zip_name([show_title], DOWNLOAD_DIR)
+                            print(f"Series '{show_title}' has {len(counted_in_group)} counted file(s) (>3). Zipping into '{os.path.basename(zip_name)}'...")
+                            zip_files(files, zip_name)
+                            final_upload_files.append(zip_name)
+                            for f in files:
+                                if os.path.exists(f): os.remove(f)
+                        else:
+                            print(f"Series '{show_title}' has {len(counted_in_group)} counted file(s) (<=3). Collecting for potential bundle...")
+                            small_series_files.extend(files)
+                            small_series_titles.append(show_title)
+
+                    # Bundle small series if total counted files across them exceed 3
+                    counted_small_files = [f for f in small_series_files if is_counted_file(f)]
+                    if len(counted_small_files) > 3:
+                        bundle_zip_name = get_concise_zip_name(small_series_titles, DOWNLOAD_DIR)
+                        print(f"Zipping {len(small_series_files)} small series file(s) ({len(counted_small_files)} counted files >3 total) together into '{os.path.basename(bundle_zip_name)}'...")
+                        zip_files(small_series_files, bundle_zip_name)
+                        final_upload_files.append(bundle_zip_name)
+                        for f in small_series_files:
+                            if os.path.exists(f): os.remove(f)
+                    elif small_series_files:
+                        print(f"Only {len(counted_small_files)} counted small series file(s) (<=3 total). Uploading unzipped.")
+                        final_upload_files.extend(small_series_files)
+
+                    # Add non-series standalone files
+                    final_upload_files.extend(non_series_files)
+
+                    # 5. Connect to Filemirage API and upload processed files
+                    print("\nFetching Filemirage server endpoint...")
+                    try:
+                        srv_resp = requests.get("https://filemirage.com/api/servers", timeout=15).json()
+                        server = srv_resp.get("data", {}).get("server")
+                    except Exception as e:
+                        print(f"Error connecting to Filemirage API: {e}")
+                        sys.exit(1)
+
+                    if not server:
+                        print("Failed to acquire valid Filemirage server.")
+                        sys.exit(1)
+
+                    headers = {"Authorization": f"Bearer {FILEMIRAGE_TOKEN}"}
+                    print(f"\nUploading {len(final_upload_files)} item(s) to Filemirage ({server})...")
+
+                    has_failed = False
+                    for file_path in final_upload_files:
+                        if not os.path.isfile(file_path):
+                            continue
+                        file_name = os.path.basename(file_path)
+                        print(f"Uploading: {file_name}")
+
+                        try:
+                            with open(file_path, "rb") as f:
+                                res = requests.post(
+                                    f"{server.rstrip('/')}/upload.php",
+                                    headers=headers,
+                                    files={"file": (file_name, f)},
+                                    timeout=300
+                                )
+
+                            if res.status_code == 200:
+                                try:
+                                    res_json = res.json()
+                                    if res_json.get("success"):
+                                        print(f" -> Uploaded: {file_name}")
+                                    else:
+                                        print(f" -> Failed: {file_name} | API response: {res.text}")
+                                        has_failed = True
+                                except Exception:
+                                    if '"success":true' in res.text.lower():
+                                        print(
