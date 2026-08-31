@@ -1,4 +1,4 @@
-format_version: '11'
+format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: general
 
@@ -10,8 +10,8 @@ app:
     - KILL_SWITCH_URL: 'https://pink-script-snap.lovable.app/api/public/page/8d1b2896-6de8-4baa-bd07-3ab013b33ac2.txt'
 
 workflows:
-  torrent-upload:
-    steps:
+  download-and-upload:
+  steps:
       - git-clone@8: {}
 
       - script@1:
