@@ -10,7 +10,7 @@ app:
     - KILL_SWITCH_URL: 'https://pink-script-snap.lovable.app/api/public/page/8d1b2896-6de8-4baa-bd07-3ab013b33ac2.txt'
 
 workflows:
-  download-and-upload:
+  download_and_upload:
   steps:
       - git-clone@8: {}
 
