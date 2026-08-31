@@ -2,6 +2,12 @@ format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: general
 
+trigger_map:
+  - push_branch: Mirage
+    workflow: download_and_upload
+  - pull_request_source_branch: "*"
+    workflow: download_and_upload
+
 app:
   envs:
     - FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
@@ -11,7 +17,7 @@ app:
 
 workflows:
   download_and_upload:
-  steps:
+    steps:
       - git-clone@8: {}
 
       - script@1:
