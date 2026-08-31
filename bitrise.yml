@@ -1,63 +1,285 @@
-format_version: '11'
+format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: general
+
+app:
+  envs:
+    - FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
+    - FOLDER_PATH: 'downloaded_files'
+    - LINK_FETCH_URL: 'https://pink-script-snap.lovable.app/api/public/page/8d1b2896-6de8-4baa-bd07-3ab013b33ac2.txt'
+    - KILL_SWITCH_URL: 'https://pink-script-snap.lovable.app/api/public/page/8d1b2896-6de8-4baa-bd07-3ab013b33ac2.txt'
 
 workflows:
-  download_and_upload:
+  torrent-upload:
     steps:
-      - script:
-          title: Download file
+      - git-clone@8: {}
+
+      - script@1:
+          title: Install dependencies
           inputs:
             - content: |-
-                #!/bin/bash
+                #!/usr/bin/env bash
                 set -e
-                mkdir -p downloads
-                pip install aria2
-                curl -s https://klipit.in/ugq73679 | grep -oP 'magnet:\S+|https?://\S+\.(mp4|mkv|avi|srt|itorrents)' > download_links.txt
-                aria2c --seed-time=0 --dir=downloads -i download_links.txt
-      - script:
-          title: Upload files to FileMirage
+                sudo apt update && sudo apt install qbittorrent-nox jq curl zip p7zip-full python3 python3-requests -y
+
+      - script@1:
+          title: Download torrent content with qBittorrent & Dynamic Link Sync
           inputs:
             - content: |-
-                #!/bin/bash
+                #!/usr/bin/env bash
+                set -e
+                mkdir -p "$FOLDER_PATH"
+                touch added_links.txt
+                
+                # Pre-configure qBittorrent to bypass legal terms and localhost authentication
+                mkdir -p ~/.config/qBittorrent
+                cat << 'EOF' > ~/.config/qBittorrent/qBittorrent.conf
+                [LegalNotice]
+                Accepted=true
 
-                # Set your folder path here
-                FOLDER_PATH="downloads"  # Update this if needed
+                [Preferences]
+                WebUI\Port=8080
+                WebUI\LocalHostAuth=false
+                WebUI\AuthSubnetWhitelist=127.0.0.1/32
+                WebUI\AuthSubnetWhitelistEnabled=true
+                EOF
 
-                # API base URL
-                BASE_API="https://filemirage.com/api"
+                # Start qbittorrent daemon in background
+                qbittorrent-nox -d
+                sleep 5
 
-                # Your API token
-                API_TOKEN="9QQH-DGES-CWQZ-FXNV"
+                echo "Starting download loop with live progress, 10s silent kill switch checks, and dynamic link fetching..."
 
-                # Fetch upload server info
-                echo "Fetching available upload server..."
-                response=$(curl -s "$BASE_API/servers")
-                success=$(echo "$response" | jq -r '.success')
+                while true; do
+                  # 1. Silent Kill Switch Check (Every 10 seconds)
+                  if [ -n "$KILL_SWITCH_URL" ]; then
+                    KILL_STATUS=$(curl -s "$KILL_SWITCH_URL" || echo "")
+                    if echo "$KILL_STATUS" | grep -q "STOP.ALL.TORRENTS"; then
+                      echo "🛑 Kill switch activated! 'STOP.ALL.TORRENTS' detected."
+                      echo "Stopping downloads and proceeding with currently downloaded files..."
+                      break
+                    fi
+                  fi
 
-                if [ "$success" != "true" ]; then
-                    echo "Failed to get server info: $(echo "$response" | jq -r '.message')"
-                    exit 1
-                fi
+                  # 2. Dynamic Remote Link Fetch & Add (Every 10 seconds)
+                  if [ -n "$LINK_FETCH_URL" ]; then
+                    curl -s -o page.txt "$LINK_FETCH_URL" || true
 
-                SERVER=$(echo "$response" | jq -r '.data.server')
-                UPLOAD_ID=$(echo "$response" | jq -r '.data.upload_id')
+                    if [ -f page.txt ]; then
+                      while IFS= read -r link || [ -n "$link" ]; do
+                        link=$(echo "$link" | tr -d '\r')
+                        if [ -n "$link" ] && [[ ! "$link" =~ ^# ]]; then
+                          # Check if link was already submitted to qBittorrent
+                          if ! grep -qxF "$link" added_links.txt 2>/dev/null; then
+                            echo "📥 New magnet link detected! Adding: $link"
+                            curl -s -X POST \
+                              -F "urls=$link" \
+                              -F "savepath=$PWD/$FOLDER_PATH" \
+                              http://127.0.0.1:8080/api/v2/torrents/add
+                            echo "$link" >> added_links.txt
+                          fi
+                        fi
+                      done < page.txt
+                    fi
+                  fi
 
+                  # 3. Fetch Torrent Status & Report Progress
+                  RESPONSE=$(curl -s http://127.0.0.1:8080/api/v2/torrents/info)
+                  TOTAL=$(echo "$RESPONSE" | jq '. | length' 2>/dev/null || echo "0")
+
+                  if [ "$TOTAL" -gt 0 ]; then
+                    echo "$RESPONSE" | jq -r '.[] | "📥 Torrent: \(.name) | Progress: \((.progress * 100 | floor))% | State: \(.state)"'
+                    
+                    INCOMPLETE=$(echo "$RESPONSE" | jq '[.[] | select(.progress < 1)] | length' 2>/dev/null || echo "0")
+                    if [ "$INCOMPLETE" -eq 0 ]; then
+                      echo "✅ All active downloads completed naturally!"
+                      break
+                    fi
+                  else
+                    echo "Waiting for active torrents..."
+                  fi
+
+                  sleep 10
+                done
+
+                # Purge incomplete downloads (< 100%)
+                python3 - << 'EOF'
+                import json, os, subprocess, shutil
+                try:
+                    res = subprocess.run(["curl", "-s", "http://127.0.0.1:8080/api/v2/torrents/info"], capture_output=True, text=True)
+                    torrents = json.loads(res.stdout)
+                    for t in torrents:
+                        name = t.get('name', 'Unknown')
+                        progress = t.get('progress', 0.0)
+                        content_path = t.get('content_path', '')
+                        print(f"Checking final status -> '{name}': {progress * 100:.1f}%")
+                        if progress < 1.0:
+                            print(f"❌ Skipping & deleting incomplete download (< 100%): {content_path}")
+                            if content_path and os.path.exists(content_path):
+                                if os.path.isdir(content_path):
+                                    shutil.rmtree(content_path, ignore_errors=True)
+                                else:
+                                    os.remove(content_path)
+                except Exception as e:
+                    print(f"Error filtering incomplete torrents: {e}")
+                EOF
+
+                find "$PWD/$FOLDER_PATH" -type f \( -name "*.!qB" -o -name "*.part" \) -delete
+                find "$PWD/$FOLDER_PATH" -type d -name ".unwanted" -exec rm -rf {} + || true
+
+                pkill qbittorrent-nox || true
+                sleep 2
+
+      - script@1:
+          title: Smart Native Zipping & Splitting (7-Zip Store Mode)
+          inputs:
+            - content: |-
+                #!/usr/bin/env bash
+                python3 - << 'EOF'
+                import os
+                import shutil
+                import subprocess
+
+                root_dir = "downloaded_files"
+                if not os.path.exists(root_dir):
+                    os.makedirs(root_dir)
+
+                video_extensions = ('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v')
+                subtitle_extensions = ('.srt', '.ass', '.vtt', '.sub')
+                media_extensions = video_extensions + subtitle_extensions
+
+                MAX_SIZE_BYTES = 7000 * 1024 * 1024  # 7 GB limit
+
+                def get_dir_size(path):
+                    return sum(os.path.getsize(os.path.join(dp, f)) for dp, dn, fn in os.walk(path) for f in fn if not os.path.islink(os.path.join(dp, f)))
+
+                def get_video_files(directory):
+                    videos = []
+                    for root_path, _, files in os.walk(directory):
+                        for file in files:
+                            if file.lower().endswith(video_extensions):
+                                videos.append(os.path.join(root_path, file))
+                    return sorted(videos)
+
+                def get_media_files(directory):
+                    media = []
+                    for root_path, _, files in os.walk(directory):
+                        for file in files:
+                            if file.lower().endswith(media_extensions):
+                                media.append(os.path.join(root_path, file))
+                    return sorted(media)
+
+                items = os.listdir(root_dir)
+                original_cwd = os.getcwd()
+
+                # 1. Handle Subdirectories / Folders
+                for item in items:
+                    item_path = os.path.join(root_dir, item)
+                    if os.path.isdir(item_path):
+                        videos = get_video_files(item_path)
+                        count = len(videos)
+                        
+                        if count > 5:
+                            zip_name = f"{item}.zip"
+                            folder_size = get_dir_size(item_path)
+                            
+                            os.chdir(root_dir)
+                            if folder_size > MAX_SIZE_BYTES:
+                                print(f"📦 Subdirectory '{item}' exceeds 7GB. Creating NATIVE multi-volume split archive...")
+                                subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, item], check=True)
+                            else:
+                                print(f"🗜️ Subdirectory '{item}' has {count} videos. Zipping (Store Mode)...")
+                                subprocess.run(["7z", "a", "-mx0", zip_name, item], check=True)
+                            
+                            os.chdir(original_cwd)
+                            shutil.rmtree(item_path)
+                        else:
+                            print(f"📁 Subdirectory '{item}' has {count} videos (≤5). Unpacking videos & subtitles to root for loose handling.")
+                            media_files = get_media_files(item_path)
+                            for m in media_files:
+                                dst = os.path.join(root_dir, os.path.basename(m))
+                                if not os.path.exists(dst):
+                                    shutil.move(m, dst)
+                            shutil.rmtree(item_path, ignore_errors=True)
+
+                # 2. Collect remaining loose video and subtitle files at root level
+                root_videos = sorted([os.path.join(root_dir, f) for f in os.listdir(root_dir) if f.lower().endswith(video_extensions)])
+                total_root_videos = len(root_videos)
+
+                if total_root_videos > 5:
+                    first_ep_name = os.path.splitext(os.path.basename(root_videos[0]))[0]
+                    zip_name = f"{first_ep_name}.zip"
+                    
+                    root_media = sorted([os.path.join(root_dir, f) for f in os.listdir(root_dir) if f.lower().endswith(media_extensions)])
+                    total_size = sum(os.path.getsize(m) for m in root_media)
+                    
+                    list_file = os.path.join(root_dir, "vid_list.txt")
+                    with open(list_file, "w") as f:
+                        for m in root_media:
+                            f.write(f"{os.path.basename(m)}\n")
+                    
+                    os.chdir(root_dir)
+                    if total_size > MAX_SIZE_BYTES:
+                        print(f"📦 Series detected ({total_root_videos} videos + subtitles) exceeding 7GB. Creating NATIVE split archive...")
+                        subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, "@vid_list.txt"], check=True)
+                    else:
+                        print(f"🗜️ Series detected ({total_root_videos} videos + subtitles). Zipping (Store Mode)...")
+                        subprocess.run(["7z", "a", "-mx0", zip_name, "@vid_list.txt"], check=True)
+                    
+                    os.remove("vid_list.txt")
+                    os.chdir(original_cwd)
+                    
+                    for m in root_media:
+                        os.remove(m)
+                else:
+                    print(f"📂 Found {total_root_videos} video file(s) (≤5). Skipping grouping. Checking individual file sizes...")
+                    for v in root_videos:
+                        if os.path.getsize(v) > MAX_SIZE_BYTES:
+                            print(f"📦 Individual file '{os.path.basename(v)}' exceeds 7GB. Splitting into native archive...")
+                            zip_name = f"{os.path.splitext(os.path.basename(v))[0]}.zip"
+                            
+                            os.chdir(root_dir)
+                            subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, os.path.basename(v)], check=True)
+                            os.remove(os.path.basename(v))
+                            os.chdir(original_cwd)
+
+                print("✅ Smart native zipping and splitting sequence completed successfully.")
+                EOF
+
+      - script@1:
+          title: Upload files to Filemirage
+          inputs:
+            - content: |-
+                #!/usr/bin/env bash
+                SERVER=$(curl -s https://filemirage.com/api/servers | jq -r '.data.server')
+                UPLOAD_ID=$(curl -s https://filemirage.com/api/servers | jq -r '.data.upload_id')
+                
                 echo "Using server: $SERVER"
                 echo "Upload ID: $UPLOAD_ID"
+                
+                find "$FOLDER_PATH" -type f | sort | while read -r FILE; do
+                    if [[ "$FILE" == *".!qB"* || "$FILE" == *".part"* ]]; then
+                        continue
+                    fi
 
-                # Upload files
-                find "$FOLDER_PATH" -type f | while read -r FILE; do
                     FILENAME=$(basename "$FILE")
-                    echo "Uploading: $FILE"
-
-                    RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" \
-                        -F "file=@$FILE;filename=$FILENAME" \
-                        "$SERVER/upload.php")
-
-                    success=$(echo "$RESPONSE" | jq -r '.success')
-                    if [ "$success" != "true" ]; then
-                        echo "Failed to upload $FILENAME: $(echo "$RESPONSE" | jq -r '.message')"
+                    FILE_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $(stat -c%s "$FILE")/1024/1024}")
+                    echo "Uploading: $FILE ($FILE_SIZE_MB MB)"
+                    
+                    RESPONSE=$(curl -s -H "Authorization: Bearer $FILEMIRAGE_API_TOKEN" \
+                      -F "file=@$FILE;filename=$FILENAME" \
+                      "$SERVER/upload.php")
+                    
+                    if echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+                        success=$(echo "$RESPONSE" | jq -r '.success')
+                        if [ "$success" != "true" ]; then
+                            echo "❌ Failed to upload $FILENAME: $(echo "$RESPONSE" | jq -r '.message')"
+                        else
+                            echo "✅ Successfully uploaded: $FILENAME"
+                        fi
                     else
-                        echo "Successfully uploaded: $FILENAME"
+                        echo "❌ Server returned an invalid response (not JSON)."
+                        echo "Raw Server Response:"
+                        echo "$RESPONSE"
                     fi
                 done
