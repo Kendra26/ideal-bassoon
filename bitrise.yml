@@ -167,6 +167,8 @@ workflows:
                 import os
                 import shutil
                 import subprocess
+                import re
+                from collections import defaultdict
 
                 root_dir = "downloaded_files"
                 if not os.path.exists(root_dir):
@@ -182,20 +184,55 @@ workflows:
                     return sum(os.path.getsize(os.path.join(dp, f)) for dp, dn, fn in os.walk(path) for f in fn if not os.path.islink(os.path.join(dp, f)))
 
                 def get_video_files(directory):
-                    videos = []
-                    for root_path, _, files in os.walk(directory):
-                        for file in files:
-                            if file.lower().endswith(video_extensions):
-                                videos.append(os.path.join(root_path, file))
-                    return sorted(videos)
+                    return sorted([os.path.join(dp, f) for dp, dn, fn in os.walk(directory) for f in fn if f.lower().endswith(video_extensions)])
 
                 def get_media_files(directory):
+                    return sorted([os.path.join(dp, f) for dp, dn, fn in os.walk(directory) for f in fn if f.lower().endswith(media_extensions)])
+
+                def get_series_name(filename):
+                    match = re.search(r'(?i)^(.*?)(?:[\. _]?(?:s\d{1,2}e\d{1,2}|\d{1,2}x\d{1,2}|e\d{1,3}|ep\s?\d{1,3}|-\s\d{1,3}))', filename)
+                    if match:
+                        name = match.group(1).strip('. -_')
+                        if name: return name
+                    
+                    name_no_ext = os.path.splitext(filename)[0]
+                    match = re.search(r'^(.*?)(?:\s*\d+)$', name_no_ext)
+                    if match:
+                        return match.group(1).strip('. -_')
+                    return name_no_ext
+
+                def get_related_subs(video_paths):
                     media = []
-                    for root_path, _, files in os.walk(directory):
-                        for file in files:
-                            if file.lower().endswith(media_extensions):
-                                media.append(os.path.join(root_path, file))
-                    return sorted(media)
+                    for v in video_paths:
+                        media.append(v)
+                        base = os.path.splitext(v)[0]
+                        for ext in subtitle_extensions:
+                            sub_path = base + ext
+                            if os.path.exists(sub_path):
+                                media.append(sub_path)
+                    return list(set(media))
+
+                def zip_files(zip_name, files_list):
+                    list_file = os.path.join(root_dir, "vid_list.txt")
+                    with open(list_file, "w") as f:
+                        for m in files_list:
+                            f.write(f"{os.path.basename(m)}\n")
+                    
+                    total_size = sum(os.path.getsize(m) for m in files_list)
+                    os.chdir(root_dir)
+                    
+                    if total_size > MAX_SIZE_BYTES:
+                        print(f"📦 Group exceeds 7GB. Creating NATIVE split archive: {zip_name}...")
+                        subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, "@vid_list.txt"], check=True)
+                    else:
+                        print(f"🗜️ Zipping (Store Mode): {zip_name}...")
+                        subprocess.run(["7z", "a", "-mx0", zip_name, "@vid_list.txt"], check=True)
+                    
+                    os.remove("vid_list.txt")
+                    os.chdir(original_cwd)
+                    
+                    for m in files_list:
+                        os.remove(m)
 
                 items = os.listdir(root_dir)
                 original_cwd = os.getcwd()
@@ -213,7 +250,7 @@ workflows:
                             
                             os.chdir(root_dir)
                             if folder_size > MAX_SIZE_BYTES:
-                                print(f"📦 Subdirectory '{item}' exceeds 7GB. Creating NATIVE multi-volume split archive...")
+                                print(f"📦 Subdirectory '{item}' exceeds 7GB. Creating NATIVE split archive...")
                                 subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, item], check=True)
                             else:
                                 print(f"🗜️ Subdirectory '{item}' has {count} videos. Zipping (Store Mode)...")
@@ -222,7 +259,7 @@ workflows:
                             os.chdir(original_cwd)
                             shutil.rmtree(item_path)
                         else:
-                            print(f"📁 Subdirectory '{item}' has {count} videos (≤5). Unpacking videos & subtitles to root for loose handling.")
+                            print(f"📁 Subdirectory '{item}' has {count} videos (≤5). Unpacking videos & subtitles to root.")
                             media_files = get_media_files(item_path)
                             for m in media_files:
                                 dst = os.path.join(root_dir, os.path.basename(m))
@@ -230,46 +267,37 @@ workflows:
                                     shutil.move(m, dst)
                             shutil.rmtree(item_path, ignore_errors=True)
 
-                # 2. Collect remaining loose video and subtitle files at root level
+                # 2. Collect remaining loose video files at root level
                 root_videos = sorted([os.path.join(root_dir, f) for f in os.listdir(root_dir) if f.lower().endswith(video_extensions)])
-                total_root_videos = len(root_videos)
+                
+                # Group videos by Series name
+                series_groups = defaultdict(list)
+                for v in root_videos:
+                    s_name = get_series_name(os.path.basename(v))
+                    series_groups[s_name].append(v)
 
-                if total_root_videos > 5:
-                    first_ep_name = os.path.splitext(os.path.basename(root_videos[0]))[0]
-                    zip_name = f"{first_ep_name}.zip"
-                    
-                    root_media = sorted([os.path.join(root_dir, f) for f in os.listdir(root_dir) if f.lower().endswith(media_extensions)])
-                    total_size = sum(os.path.getsize(m) for m in root_media)
-                    
-                    list_file = os.path.join(root_dir, "vid_list.txt")
-                    with open(list_file, "w") as f:
-                        for m in root_media:
-                            f.write(f"{os.path.basename(m)}\n")
-                    
-                    os.chdir(root_dir)
-                    if total_size > MAX_SIZE_BYTES:
-                        print(f"📦 Series detected ({total_root_videos} videos + subtitles) exceeding 7GB. Creating NATIVE split archive...")
-                        subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, "@vid_list.txt"], check=True)
+                remaining_loose = []
+
+                # Process grouped series (> 3 episodes) -> Name zip after the first episode file name
+                for s_name, vids in series_groups.items():
+                    if len(vids) > 3:
+                        first_ep_name = os.path.splitext(os.path.basename(vids[0]))[0]
+                        zip_name = f"{first_ep_name}.zip"
+                        print(f"📂 Found series '{s_name}' with {len(vids)} episodes (>3). Grouping into {zip_name}...")
+                        media_to_zip = get_related_subs(vids)
+                        zip_files(zip_name, media_to_zip)
                     else:
-                        print(f"🗜️ Series detected ({total_root_videos} videos + subtitles). Zipping (Store Mode)...")
-                        subprocess.run(["7z", "a", "-mx0", zip_name, "@vid_list.txt"], check=True)
-                    
-                    os.remove("vid_list.txt")
-                    os.chdir(original_cwd)
-                    
-                    for m in root_media:
-                        os.remove(m)
+                        remaining_loose.extend(vids)
+
+                # 3. Process remaining loose files (> 3 total, pack together) -> Name zip after the first file
+                if len(remaining_loose) > 3:
+                    first_file_name = os.path.splitext(os.path.basename(remaining_loose[0]))[0]
+                    zip_name = f"{first_file_name}.zip"
+                    print(f"📂 Found {len(remaining_loose)} mixed loose episodes (>3). Packing into {zip_name}...")
+                    media_to_zip = get_related_subs(remaining_loose)
+                    zip_files(zip_name, media_to_zip)
                 else:
-                    print(f"📂 Found {total_root_videos} video file(s) (≤5). Skipping grouping. Checking individual file sizes...")
-                    for v in root_videos:
-                        if os.path.getsize(v) > MAX_SIZE_BYTES:
-                            print(f"📦 Individual file '{os.path.basename(v)}' exceeds 7GB. Splitting into native archive...")
-                            zip_name = f"{os.path.splitext(os.path.basename(v))[0]}.zip"
-                            
-                            os.chdir(root_dir)
-                            subprocess.run(["7z", "a", "-v7000m", "-mx0", zip_name, os.path.basename(v)], check=True)
-                            os.remove(os.path.basename(v))
-                            os.chdir(original_cwd)
+                    print(f"📂 Found {len(remaining_loose)} remaining loose files (≤3). Skipping grouping (treating movies/singles as non-series).")
 
                 print("✅ Smart native zipping and splitting sequence completed successfully.")
                 EOF
