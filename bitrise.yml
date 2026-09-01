@@ -60,11 +60,33 @@ workflows:
                   # 1. Silent Kill Switch Check (Every 10 seconds)
                   if [ -n "$KILL_SWITCH_URL" ]; then
                     KILL_STATUS=$(curl -s "$KILL_SWITCH_URL" || echo "")
+                    
+                    # Global Kill Switch
                     if echo "$KILL_STATUS" | grep -q "STOP.ALL.TORRENTS"; then
                       echo "🛑 Kill switch activated! 'STOP.ALL.TORRENTS' detected."
                       echo "Stopping downloads and proceeding with currently downloaded files..."
                       break
                     fi
+
+                    # Specific Torrent Kill Switch (Format in text file: "Torrent Name NO")
+                    echo "$KILL_STATUS" | grep " NO$" | while read -r line; do
+                      # Extract target name by removing " NO" from the end and trimming whitespace
+                      TARGET_NAME=$(echo "$line" | sed 's/ NO$//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+                      if [ -n "$TARGET_NAME" ]; then
+                        # Convert to lowercase for case-insensitive matching
+                        LOWER_TARGET=$(echo "$TARGET_NAME" | tr '[:upper:]' '[:lower:]')
+                        # Find matching hashes from qBittorrent
+                        HASHES=$(curl -s http://127.0.0.1:8080/api/v2/torrents/info | jq -r ".[] | select(.name | ascii_downcase | contains(\"$LOWER_TARGET\")) | .hash" 2>/dev/null || true)
+                        
+                        for HASH in $HASHES; do
+                          if [ -n "$HASH" ]; then
+                            echo "🛑 Specific kill switch activated for target: $TARGET_NAME (Hash: $HASH)"
+                            # Delete the torrent and its downloaded files
+                            curl -s -X POST -d "hashes=$HASH&deleteFiles=true" http://127.0.0.1:8080/api/v2/torrents/delete
+                          fi
+                        done
+                      fi
+                    done
                   fi
 
                   # 2. Dynamic Remote Link Fetch & Add (Every 10 seconds)
