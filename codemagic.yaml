@@ -1,7 +1,7 @@
 workflows:
   qbittorrent-filemirage:
     name: Torrent Download (qBittorrent - Max 10 Concurrent) & Filemirage
-    instance_type: linux_x86_64
+    instance_type: linux_x4
     environment:
       vars:
         FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
