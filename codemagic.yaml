@@ -1,6 +1,6 @@
 workflows:
-  torrent-upload:
-    name: Torrent Download (qBittorrent - Max 10 Concurrent) & Filemirage
+  libtorrent-filemirage-mac:
+    name: Torrent Download (libtorrent - Max 10 Concurrent) & Filemirage (macOS)
     environment:
       vars:
         FILEMIRAGE_API_TOKEN: '9QQH-DGES-CWQZ-FXNV'
@@ -9,104 +9,106 @@ workflows:
         KILL_SWITCH_URL: 'https://pink-script-snap.lovable.app/api/public/page/9c91e8a6-e112-4b0a-9afb-45ab37c314dd.txt'
     
     scripts:
-      - name: Install dependencies
+      - name: Install dependencies (Homebrew & Pip)
         script: |
-          apt update && apt install qbittorrent-nox jq curl zip p7zip-full python3 python3-requests -y
+          brew install p7zip jq curl python3
+          pip3 install libtorrent requests
 
-      - name: Download torrent content with qBittorrent (Max 10 Concurrent) & Live Stats
+      - name: Download torrent content with Python Libtorrent (Max 10 Concurrent) & Live Stats
         script: |
-          #!/usr/bin/env bash
-          set -e
-          mkdir -p "$FOLDER_PATH"
-          touch added_links.txt
+          python3 - << 'EOF'
+          import libtorrent as lt
+          import time, os, requests
+
+          ses = lt.session()
+          ses.listen_on(6881, 6891)
           
-          mkdir -p ~/.config/qBittorrent
-          cat << 'EOF' > ~/.config/qBittorrent/qBittorrent.conf
-          [LegalNotice]
-          Accepted=true
-          [Preferences]
-          WebUI\Port=8080
-          WebUI\LocalHostAuth=false
-          WebUI\AuthSubnetWhitelist=127.0.0.1/32
-          WebUI\AuthSubnetWhitelistEnabled=true
-          Queueing\QueueEnabled=true
-          Queueing\MaxActiveDownloads=10
-          Queueing\MaxActiveTorrents=25
-          EOF
+          settings = ses.get_settings()
+          settings['active_downloads'] = 10
+          settings['active_limit'] = 25
+          ses.apply_settings(settings)
 
-          qbittorrent-nox -d
-          sleep 5
+          save_path = os.environ.get("FOLDER_PATH", "downloaded_files")
+          os.makedirs(save_path, exist_ok=True)
 
-          echo "Starting download loop with up to 10 concurrent downloads, live speed, ETA, and kill switch..."
+          link_url = os.environ.get("LINK_FETCH_URL")
+          kill_url = os.environ.get("KILL_SWITCH_URL")
 
-          while true; do
-            if [ -n "$KILL_SWITCH_URL" ]; then
-              KILL_STATUS=$(curl -s "$KILL_SWITCH_URL" || echo "")
-              if echo "$KILL_STATUS" | grep -q "STOP.ALL.TORRENTS"; then break; fi
+          added_links = set()
 
-              echo "$KILL_STATUS" | grep " NO$" > current_kill_list.txt || true
-              if [ -s current_kill_list.txt ]; then
-                python3 - << 'EOF'
-          import requests
-          try:
-              res = requests.get('http://127.0.0.1:8080/api/v2/torrents/info').json()
-              with open('current_kill_list.txt') as f:
-                  targets = [l.replace(' NO','').strip().lower() for l in f if l.strip()]
-              for t in res:
-                  if any(tg in t['name'].lower() for tg in targets if tg):
-                      print(f"🛑 Killing specific target: {t['name']}")
-                      requests.post('http://127.0.0.1:8080/api/v2/torrents/delete', data={'hashes': t['hash'], 'deleteFiles': 'true'})
-          except Exception as e: print("Kill switch error:", e)
-          EOF
-              fi
-            fi
-
-            if [ -n "$LINK_FETCH_URL" ]; then
-              curl -s -o page.txt "$LINK_FETCH_URL" || true
-              if [ -f page.txt ]; then
-                while IFS= read -r link || [ -n "$link" ]; do
-                  link=$(echo "$link" | tr -d '\r')
-                  if [ -n "$link" ] && [[ ! "$link" =~ ^# ]]; then
-                    if ! grep -qxF "$link" added_links.txt 2>/dev/null; then
-                      echo "📥 Adding link: $link"
-                      curl -s -X POST -F "urls=$link" -F "savepath=$PWD/$FOLDER_PATH" http://127.0.0.1:8080/api/v2/torrents/add
-                      echo "$link" >> added_links.txt
-                    fi
-                  fi
-                done < page.txt
-              fi
-            fi
-
-            ALL_DONE=$(python3 - << 'EOF'
-          import requests
           def fmt_eta(sec):
               if sec is None or sec < 0 or sec >= 8640000: return "∞"
               m, s = divmod(int(sec), 60); h, m = divmod(m, 60)
               return f"{h}h {m}m {s}s" if h else (f"{m}m {s}s" if m else f"{s}s")
-          try:
-              res = requests.get('http://127.0.0.1:8080/api/v2/torrents/info').json()
-              if not res: print("WAITING")
+
+          print("Starting native libtorrent loop with max 10 concurrent downloads, live stats, and kill switch...")
+
+          while True:
+              # 1. Check Kill Switch
+              if kill_url:
+                  try:
+                      k_res = requests.get(kill_url, timeout=10).text
+                      if "STOP.ALL.TORRENTS" in k_res:
+                          print("🛑 Global kill switch activated!")
+                          break
+
+                      kill_targets = [line.replace(' NO', '').strip().lower() for line in k_res.splitlines() if line.endswith(' NO') and line.strip()]
+                      if kill_targets:
+                          for h in ses.get_torrents():
+                              st = h.status()
+                              name = st.name.lower()
+                              if any(kt in name for kt in kill_targets if kt):
+                                  print(f"🛑 Killing specific target: {st.name}")
+                                  ses.remove_torrent(h, lt.options_t.delete_files)
+                  except Exception as e:
+                      print("Kill switch check error:", e)
+
+              # 2. Fetch & Add New Links
+              if link_url:
+                  try:
+                      l_res = requests.get(link_url, timeout=10).text
+                      for link in l_res.splitlines():
+                          link = link.strip()
+                          if link and not link.startswith('#') and link not in added_links:
+                              print(f"📥 Adding link: {link}")
+                              params = {
+                                  'save_path': save_path,
+                                  'storage_mode': lt.storage_mode_t.storage_mode_sparse
+                              }
+                              if link.startswith('magnet:'):
+                                  lt.add_magnet_uri(ses, link, params)
+                              elif link.startswith('http'):
+                                  tor_data = requests.get(link).content
+                                  with open('temp.torrent', 'wb') as tf: tf.write(tor_data)
+                                  info = lt.torrent_info('temp.torrent')
+                                  ses.add_torrent({'ti': info, 'save_path': save_path})
+                                  os.remove('temp.torrent')
+                              added_links.add(link)
+                  except Exception as e:
+                      print("Link fetch error:", e)
+
+              # 3. Track Status & Progress
+              torrents = ses.get_torrents()
+              if not torrents:
+                  print("WAITING")
               else:
                   incomplete = 0
-                  for t in res:
-                      prog = int(t.get('progress', 0) * 100)
-                      speed_mb = t.get('dlspeed', 0) / (1024 * 1024)
-                      eta_str = fmt_eta(t.get('eta', -1))
-                      print(f"📥 Torrent: {t['name']} | {prog}% | Speed: {speed_mb:.2f} MB/s | ETA: {eta_str}")
-                      if prog < 100: incomplete += 1
-                  if incomplete == 0: print("ALL_COMPLETE")
-          except Exception as e: pass
+                  for h in torrents:
+                      st = h.status()
+                      name = st.name if st.has_metadata else "Downloading Metadata..."
+                      prog = int(st.progress * 100)
+                      speed_mb = st.download_rate / (1024 * 1024)
+                      eta_sec = st.eta if hasattr(st, 'eta') else -1
+                      print(f"📥 Torrent: {name} | State: {st.state.name} | {prog}% | Speed: {speed_mb:.2f} MB/s | ETA: {fmt_eta(eta_sec)}")
+                      if not st.is_finished:
+                          incomplete += 1
+                  
+                  if incomplete == 0:
+                      print("ALL_COMPLETE")
+                      break
+
+              time.sleep(10)
           EOF
-            )
-
-            echo "$ALL_DONE" | grep -v "ALL_COMPLETE" | grep -v "WAITING" || true
-            if echo "$ALL_DONE" | grep -q "ALL_COMPLETE"; then break; fi
-            sleep 10
-          done
-
-          find "$PWD/$FOLDER_PATH" -type f -name "*.!qB" -delete
-          pkill qbittorrent-nox || true
-          sleep 2
 
       - name: Smart Native Zipping & Splitting (7-Zip Store Mode)
         script: |
@@ -178,9 +180,9 @@ workflows:
           SERVER=$(curl -s https://filemirage.com/api/servers | jq -r '.data.server')
           echo "Using server: $SERVER"
           find "$FOLDER_PATH" -type f | sort | while read -r FILE; do
-              if [[ "$FILE" == *".!qB"* || "$FILE" == *".part"* ]]; then continue; fi
+              if [[ "$FILE" == *".part"* ]]; then continue; fi
               FILENAME=$(basename "$FILE")
-              FILE_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $(stat -c%s \"$FILE\")/1024/1024}")
+              FILE_SIZE_MB=$(python3 -c "import os; print(f'{os.path.getsize(\"$FILE\")/1024/1024:.2f}')")
               echo "Uploading: $FILE ($FILE_SIZE_MB MB)"
               RESPONSE=$(curl -s -H "Authorization: Bearer $FILEMIRAGE_API_TOKEN" -F "file=@$FILE;filename=$FILENAME" "$SERVER/upload.php")
               if echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
