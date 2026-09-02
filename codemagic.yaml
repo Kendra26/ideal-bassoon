@@ -11,8 +11,7 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
-          brew update
-          brew install qbittorrent-nox jq curl zip p7zip-full python3 python3-requests -y
+          apt update && apt install qbittorrent-nox jq curl zip p7zip-full python3 python3-requests -y
 
       - name: Download torrent content with qBittorrent (Max 10 Concurrent) & Live Stats
         script: |
