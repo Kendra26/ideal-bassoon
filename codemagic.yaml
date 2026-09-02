@@ -1,5 +1,5 @@
 workflows:
-  qbittorrent-filemirage:
+  torrent-upload:
     name: Torrent Download (qBittorrent - Max 10 Concurrent) & Filemirage
     instance_type: linux_x4
     environment:
