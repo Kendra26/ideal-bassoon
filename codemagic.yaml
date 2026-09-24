@@ -265,7 +265,7 @@ workflows:
           folder = "downloads"
           video_ext = ('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v')
           media_ext = video_ext + ('.srt', '.ass', '.vtt', '.sub')
-          PART_SIZE_LIMIT = 8000 * 1024 * 1024  # Max size per independent zip (5000 MB)
+          PART_SIZE_LIMIT = 10000 * 1024 * 1024  # Max size per independent zip (5000 MB)
 
           def sanitize_name(name):
               s = re.sub(r'[^\w\.\-]', '_', name)
