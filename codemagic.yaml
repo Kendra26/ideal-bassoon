@@ -85,9 +85,9 @@ workflows:
           asyncio.run(main())
           EOF
 
-      - name: Libtorrent downloads
+      - name: Libtorrent & wget downloads
         script: |
-          echo "🚀 Starting max-speed concurrent downloads..."
+          echo "🚀 Starting max-speed concurrent downloads with live monitoring..."
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           python3 -u - << 'EOF'
           import os
@@ -96,7 +96,15 @@ workflows:
           import time
           import requests
           import libtorrent as lt
+          from urllib.parse import urlparse
           from natsort import natsorted
+          from magnet2torrent import Magnet2Torrent
+
+          LINK_URL = "https://utfdtjcnbprlhkhsdovt.supabase.co/functions/v1/download-page/47e53a9a-54ab-48c5-b8f4-2919917613a6"
+
+          seen_links = set()
+          active_procs = set()
+          kill_event = asyncio.Event()
 
           def get_best_trackers():
               fallback_trackers = [
@@ -134,23 +142,36 @@ workflows:
 
           async def download_target(target, sem):
               async with sem:
+                  if kill_event.is_set():
+                      return None
+
+                  # Direct HTTP download via wget (with content-disposition and resume)
                   if target.startswith('http') and not target.endswith('.torrent'):
-                      print(f"📥 Starting direct HTTP download via wget: {target[:80]}", flush=True)
+                      print(f"📥 Starting concurrent wget download: {target[:80]}", flush=True)
                       try:
-                          cmd = ["wget", "-P", "downloads", "-c", "--no-check-certificate", target]
+                          cmd = ["wget", "-P", "downloads", "-c", "--content-disposition", "--no-check-certificate", target]
                           proc = await asyncio.create_subprocess_exec(*cmd)
-                          await proc.communicate()
+                          active_procs.add(proc)
+                          
+                          try:
+                              await proc.wait()
+                          finally:
+                              active_procs.discard(proc)
                           
                           if proc.returncode == 0:
                               print(f"✅ Successfully finished wget download: {target[:80]}", flush=True)
                               return target
                           else:
-                              print(f"❌ wget download failed with exit code {proc.returncode}: {target[:80]}", flush=True)
+                              if kill_event.is_set():
+                                  print(f"🛑 wget download cancelled by kill switch: {target[:80]}", flush=True)
+                              else:
+                                  print(f"❌ wget download failed with exit code {proc.returncode}: {target[:80]}", flush=True)
                               return None
                       except Exception as e:
                           print(f"❌ HTTP download failed: {e}", flush=True)
                           return None
 
+                  # Torrent/Magnet download
                   print(f"📥 Starting torrent: {target[:80]}", flush=True)
                   handle = None
                   try:
@@ -170,6 +191,12 @@ workflows:
                       last_print_time = time.time()
                       
                       while True:
+                          if kill_event.is_set():
+                              print(f"🛑 Torrent aborted by kill switch: {target[:80]}", flush=True)
+                              if handle:
+                                  ses.remove_torrent(handle)
+                              return None
+
                           s = handle.status()
                           if s.is_finished or s.progress >= 1.0 or getattr(s, 'is_seeding', False):
                               break
@@ -207,29 +234,113 @@ workflows:
                           ses.remove_torrent(handle)
                       return None
 
+          async def poll_control_url(sem, pending_tasks):
+              """Silent 20s background poller for kill switch and dynamic link additions."""
+              while not kill_event.is_set():
+                  try:
+                      res = await asyncio.to_thread(requests.get, LINK_URL, timeout=10)
+                      if res.status_code == 200:
+                          ks = res.text
+                          if "STOP.ALL.TORRENTS" in ks:
+                              print("🛑 Global kill switch active! Terminating all active downloads...", flush=True)
+                              kill_event.set()
+                              for p in list(active_procs):
+                                  try:
+                                      p.kill()
+                                  except Exception:
+                                      pass
+                              break
+                          
+                          # Dynamic check for new links
+                          for line in ks.splitlines():
+                              link = line.strip()
+                              if link and not link.startswith('#') and not link.endswith(' NO'):
+                                  if link not in seen_links:
+                                      seen_links.add(link)
+                                      print(f"🔗 Dynamically queued new link from poll: {link[:60]}...", flush=True)
+                                      if link.startswith('magnet:'):
+                                          try:
+                                              m2t = Magnet2Torrent(link)
+                                              filename, torrent_data = await asyncio.wait_for(m2t.retrieve_torrent(), timeout=30)
+                                              torrent_path = os.path.join("torrents", f"{filename}.torrent")
+                                              with open(torrent_path, "wb") as f:
+                                                  f.write(torrent_data)
+                                              task = asyncio.create_task(download_target(torrent_path, sem))
+                                              pending_tasks.append(task)
+                                          except Exception:
+                                              task = asyncio.create_task(download_target(link, sem))
+                                              pending_tasks.append(task)
+                                      elif link.startswith('http') and link.endswith('.torrent'):
+                                          try:
+                                              tor_data = requests.get(link, timeout=15).content
+                                              parsed = urlparse(link)
+                                              filename = os.path.basename(parsed.path) or f"download_{time.time()}.torrent"
+                                              torrent_path = os.path.join('torrents', filename)
+                                              with open(torrent_path, 'wb') as tf:
+                                                  tf.write(tor_data)
+                                              task = asyncio.create_task(download_target(torrent_path, sem))
+                                              pending_tasks.append(task)
+                                          except Exception:
+                                              pass
+                                      else:
+                                          task = asyncio.create_task(download_target(link, sem))
+                                          pending_tasks.append(task)
+                  except Exception:
+                      pass  # Keep polling silently on error
+                      
+                  try:
+                      await asyncio.sleep(20)
+                  except asyncio.CancelledError:
+                      break
+
           async def main():
-              targets = natsorted(glob.glob("torrents/*.torrent"))
+              os.makedirs("downloads", exist_ok=True)
+              os.makedirs("torrents", exist_ok=True)
+
+              sem = asyncio.Semaphore(16)
+              initial_targets = natsorted(glob.glob("torrents/*.torrent"))
               
               if os.path.exists("direct_links.txt"):
                   with open("direct_links.txt", "r") as f:
                       links = [line.strip() for line in f if line.strip()]
-                      targets.extend(natsorted(links))
-                      
-              if not targets:
-                  print("⚠️ No torrents or links found to download.")
-                  return
+                      for l in links:
+                          seen_links.add(l)
+                      initial_targets.extend(natsorted(links))
 
-              os.makedirs("downloads", exist_ok=True)
-              sem = asyncio.Semaphore(16)
-              tasks = [download_target(t, sem) for t in targets]
-              results = await asyncio.gather(*tasks)
-              finished = [r for r in results if r]
-              
+              pending_tasks = []
+              finished_results = []
+
+              for target in initial_targets:
+                  task = asyncio.create_task(download_target(target, sem))
+                  pending_tasks.append(task)
+
+              poller_task = asyncio.create_task(poll_control_url(sem, pending_tasks))
+
+              while pending_tasks and not kill_event.is_set():
+                  current_batch = list(pending_tasks)
+                  done, _ = await asyncio.wait(current_batch, return_when=asyncio.FIRST_COMPLETED)
+                  
+                  for t in done:
+                      if t in pending_tasks:
+                          pending_tasks.remove(t)
+                          res = t.result()
+                          if res:
+                              finished_results.append(res)
+                  
+                  if not pending_tasks:
+                      await asyncio.sleep(2)
+                      if not pending_tasks:
+                          break
+
+              poller_task.cancel()
+
               print("\n====================")
-              print("🎉 FINISHED DOWNLOADS:")
-              print("====================")
-              for item in finished:
-                  print(f"✅ {item[:80]}")
+              if kill_event.is_set():
+                  print("🛑 DOWNLOADS TERMINATED BY KILL SWITCH")
+              else:
+                  print("🎉 FINISHED DOWNLOADS:")
+                  for item in finished_results:
+                      print(f"✅ {item[:80]}")
               print("====================\n")
 
           asyncio.run(main())
