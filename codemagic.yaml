@@ -13,10 +13,10 @@ workflows:
     scripts:
       - name: Install dependencies
         script: |
-          echo "📦 Installing dependencies (7-zip, libtorrent, Python3)..."
+          echo "📦 Installing dependencies (7-zip, libtorrent, Python3, wget)..."
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           brew update || true
-          brew install p7zip libtorrent-rasterbar python3 curl
+          brew install p7zip libtorrent-rasterbar python3 curl wget
           
           # Use Homebrew's python explicitly with --break-system-packages
           python3 -m pip install --upgrade pip --break-system-packages
@@ -87,7 +87,7 @@ workflows:
 
       - name: Libtorrent downloads
         script: |
-          echo "🚀 Starting max-speed concurrent libtorrent downloads..."
+          echo "🚀 Starting max-speed concurrent downloads..."
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           python3 -u - << 'EOF'
           import os
@@ -135,36 +135,18 @@ workflows:
           async def download_target(target, sem):
               async with sem:
                   if target.startswith('http') and not target.endswith('.torrent'):
-                      print(f"📥 Starting direct HTTP download: {target[:80]}", flush=True)
+                      print(f"📥 Starting direct HTTP download via wget: {target[:80]}", flush=True)
                       try:
-                          parsed = requests.utils.urlparse(target)
-                          fname = os.path.basename(parsed.path) or f"download_{time.time()}"
-                          dest = os.path.join("downloads", fname)
-                          with requests.get(target, stream=True, timeout=15) as r:
-                              r.raise_for_status()
-                              total_len = r.headers.get('content-length')
-                              with open(dest, 'wb') as f:
-                                  if total_len is None:
-                                      for chunk in r.iter_content(chunk_size=8192):
-                                          if chunk: f.write(chunk)
-                                  else:
-                                      dl = 0
-                                      total_len = int(total_len)
-                                      start_time = time.time()
-                                      last_p_time = time.time()
-                                      for chunk in r.iter_content(chunk_size=8192):
-                                          if chunk:
-                                              dl += len(chunk)
-                                              f.write(chunk)
-                                              cur_time = time.time()
-                                              if cur_time - last_p_time >= 30:
-                                                  speed = dl / (cur_time - start_time)
-                                                  eta_str = format_eta((total_len - dl) / speed) if speed > 0 else "Unknown"
-                                                  pct = (dl / total_len) * 100
-                                                  print(f"📊 HTTP Progress [{fname[:30]}]: {pct:.2f}% | Rate: {speed/1024:.1f} KiB/s | ETA: {eta_str}", flush=True)
-                                                  last_p_time = cur_time
-                          print(f"✅ Successfully finished: {target[:80]}", flush=True)
-                          return target
+                          cmd = ["wget", "-P", "downloads", "-c", "--no-check-certificate", target]
+                          proc = await asyncio.create_subprocess_exec(*cmd)
+                          await proc.communicate()
+                          
+                          if proc.returncode == 0:
+                              print(f"✅ Successfully finished wget download: {target[:80]}", flush=True)
+                              return target
+                          else:
+                              print(f"❌ wget download failed with exit code {proc.returncode}: {target[:80]}", flush=True)
+                              return None
                       except Exception as e:
                           print(f"❌ HTTP download failed: {e}", flush=True)
                           return None
